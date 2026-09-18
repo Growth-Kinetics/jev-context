@@ -61,14 +61,20 @@ export function segmentEpochs(entries: SessionEntry[]): Epoch[] {
   return epochs;
 }
 
-export function isToolResultMessage(m: { role: string }): m is ToolResultMessage {
+export function isToolResultMessage(m: {
+  role: string;
+}): m is ToolResultMessage {
   return m.role === "toolResult";
 }
 
 /** Tool pairs of one epoch, in transcript order. Unanswered calls keep result=null. */
 export function pairsInEpoch(epoch: Epoch): ToolPair[] {
   const results = new Map<string, ToolResultMessage>();
-  const calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [];
+  const calls: Array<{
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }> = [];
   for (const entry of epoch.entries) {
     const msg = entry.message;
     if (msg === undefined) continue;
@@ -78,7 +84,11 @@ export function pairsInEpoch(epoch: Epoch): ToolPair[] {
     }
     for (const part of msg.content) {
       if (part.type === "toolCall") {
-        calls.push({ id: part.id ?? "", name: part.name ?? "", arguments: part.arguments ?? {} });
+        calls.push({
+          id: part.id ?? "",
+          name: part.name ?? "",
+          arguments: part.arguments ?? {},
+        });
       }
     }
   }
@@ -107,11 +117,18 @@ export function partBytes(part: MessagePart): PartBytes {
     case "text":
       return { textBytes: Buffer.byteLength(part.text ?? ""), imageBytes: 0 };
     case "thinking":
-      return { textBytes: Buffer.byteLength(part.thinking ?? ""), imageBytes: 0 };
+      return {
+        textBytes: Buffer.byteLength(part.thinking ?? ""),
+        imageBytes: 0,
+      };
     case "toolCall":
       return {
         textBytes: Buffer.byteLength(
-          JSON.stringify({ id: part.id, name: part.name, arguments: part.arguments }),
+          JSON.stringify({
+            id: part.id,
+            name: part.name,
+            arguments: part.arguments,
+          }),
         ),
         imageBytes: 0,
       };
@@ -138,7 +155,11 @@ export function chatMessageBytes(msg: ChatMessage): PartBytes {
 export function toolResultBytes(msg: ToolResultMessage): PartBytes {
   const inner = contentBytes(msg.content);
   const wrapper = Buffer.byteLength(
-    JSON.stringify({ toolCallId: msg.toolCallId, toolName: msg.toolName, isError: msg.isError }),
+    JSON.stringify({
+      toolCallId: msg.toolCallId,
+      toolName: msg.toolName,
+      isError: msg.isError,
+    }),
   );
   return { textBytes: inner.textBytes + wrapper, imageBytes: inner.imageBytes };
 }
@@ -149,11 +170,16 @@ export function toolResultBytes(msg: ToolResultMessage): PartBytes {
  * within the boundary epoch only the user message is visible (assistant output has not
  * run yet); capped at `cap` bytes, newest content winning. Output reads oldest-first.
  */
-export function buildDigest(epochs: Epoch[], epochIndex: number, cap = DIGEST_CAP_BYTES): string {
+export function buildDigest(
+  epochs: Epoch[],
+  epochIndex: number,
+  cap = DIGEST_CAP_BYTES,
+): string {
   const chunks: string[] = [];
   let total = 0;
   for (let e = Math.min(epochIndex + 1, epochs.length) - 1; e >= 0; e--) {
-    const visible = e === epochIndex ? epochs[e].entries.slice(0, 1) : epochs[e].entries;
+    const visible =
+      e === epochIndex ? epochs[e].entries.slice(0, 1) : epochs[e].entries;
     for (let i = visible.length - 1; i >= 0; i--) {
       const msg = visible[i].message;
       if (msg === undefined || msg.role === "toolResult") continue;

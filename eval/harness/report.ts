@@ -2,9 +2,9 @@
 // key order, fixed decimal precision — two runs over the same corpus are byte-identical.
 
 import { sha256 } from "./catalog.ts";
-import { estimateTokens, usdFromTokens } from "./tokens.ts";
-import type { SessionResult, SpendLine } from "./simulate.ts";
 import type { ThresholdPolicy } from "./policy.ts";
+import type { SessionResult, SpendLine } from "./simulate.ts";
+import { estimateTokens, usdFromTokens } from "./tokens.ts";
 
 export interface Aggregate {
   sessions: number;
@@ -42,7 +42,10 @@ export interface LabelMetrics {
 
 function sumSpend(spend: SpendLine[]): { tokens: number; requests: number } {
   return spend.reduce(
-    (acc, line) => ({ tokens: acc.tokens + line.tokensEstimated, requests: acc.requests + 1 }),
+    (acc, line) => ({
+      tokens: acc.tokens + line.tokensEstimated,
+      requests: acc.requests + 1,
+    }),
     { tokens: 0, requests: 0 },
   );
 }
@@ -50,19 +53,25 @@ function sumSpend(spend: SpendLine[]): { tokens: number; requests: number } {
 export function aggregate(results: SessionResult[]): Aggregate {
   const tokens = (r: SessionResult, arm: "baseline" | "routed" | "pruned") =>
     estimateTokens(r[arm].textBytes);
-  const tokensBaseline = results.reduce((acc, r) => acc + tokens(r, "baseline"), 0);
+  const tokensBaseline = results.reduce(
+    (acc, r) => acc + tokens(r, "baseline"),
+    0,
+  );
   const tokensRouted = results.reduce((acc, r) => acc + tokens(r, "routed"), 0);
   const tokensPruned = results.reduce((acc, r) => acc + tokens(r, "pruned"), 0);
   const skillsSaved = results.reduce(
-    (acc, r) => acc + estimateTokens(r.baseline.skillsBytes - r.routed.skillsBytes),
+    (acc, r) =>
+      acc + estimateTokens(r.baseline.skillsBytes - r.routed.skillsBytes),
     0,
   );
   const toolsSaved = results.reduce(
-    (acc, r) => acc + estimateTokens(r.baseline.toolsBytes - r.routed.toolsBytes),
+    (acc, r) =>
+      acc + estimateTokens(r.baseline.toolsBytes - r.routed.toolsBytes),
     0,
   );
   const historySaved = results.reduce(
-    (acc, r) => acc + estimateTokens(r.routed.historyBytes - r.pruned.historyBytes),
+    (acc, r) =>
+      acc + estimateTokens(r.routed.historyBytes - r.pruned.historyBytes),
     0,
   );
   const cold = sumSpend(results.flatMap((r) => r.spend));
@@ -77,8 +86,14 @@ export function aggregate(results: SessionResult[]): Aggregate {
     skillsSavedTokens: skillsSaved,
     toolsSavedTokens: toolsSaved,
     historySavedTokens: historySaved,
-    reductionRoutedPct: tokensBaseline > 0 ? ((tokensBaseline - tokensRouted) / tokensBaseline) * 100 : 0,
-    reductionPrunedPct: tokensBaseline > 0 ? ((tokensBaseline - tokensPruned) / tokensBaseline) * 100 : 0,
+    reductionRoutedPct:
+      tokensBaseline > 0
+        ? ((tokensBaseline - tokensRouted) / tokensBaseline) * 100
+        : 0,
+    reductionPrunedPct:
+      tokensBaseline > 0
+        ? ((tokensBaseline - tokensPruned) / tokensBaseline) * 100
+        : 0,
     prunedPairs: results.reduce((acc, r) => acc + r.prunedPairs, 0),
     prunedTokens: results.reduce((acc, r) => acc + r.prunedTokens, 0),
     falsePrune: results.reduce((acc, r) => acc + r.falsePrune, 0),
@@ -87,7 +102,10 @@ export function aggregate(results: SessionResult[]): Aggregate {
     jevColdTokens: cold.tokens,
     jevColdUsd: usdFromTokens(cold.tokens),
     jevRequests: cold.requests,
-    imageBytesBaseline: results.reduce((acc, r) => acc + r.baseline.imageBytes, 0),
+    imageBytesBaseline: results.reduce(
+      (acc, r) => acc + r.baseline.imageBytes,
+      0,
+    ),
   };
 }
 
@@ -106,10 +124,21 @@ export function buildReport(
   results: SessionResult[],
   labels?: LabelMetrics,
 ): ReportDoc {
-  const sorted = [...results].sort((a, b) => a.proj.localeCompare(b.proj) || a.path.localeCompare(b.path));
+  const sorted = [...results].sort(
+    (a, b) => a.proj.localeCompare(b.proj) || a.path.localeCompare(b.path),
+  );
   return {
     corpus,
-    fingerprint: sha256(JSON.stringify(sorted.map((r) => [r.proj, r.path, r.baseline.textBytes, r.pruned.textBytes]))),
+    fingerprint: sha256(
+      JSON.stringify(
+        sorted.map((r) => [
+          r.proj,
+          r.path,
+          r.baseline.textBytes,
+          r.pruned.textBytes,
+        ]),
+      ),
+    ),
     policy,
     aggregate: aggregate(sorted),
     sessions: sorted,
@@ -129,7 +158,9 @@ export function reportMarkdown(doc: ReportDoc): string {
   const lines: string[] = [];
   lines.push(`# Jev context governor — benchmark report`);
   lines.push("");
-  lines.push(`- corpus: \`${doc.corpus}\` (${a.sessions} sessions, ${a.epochs} epochs, ${a.calls} LLM calls)`);
+  lines.push(
+    `- corpus: \`${doc.corpus}\` (${a.sessions} sessions, ${a.epochs} epochs, ${a.calls} LLM calls)`,
+  );
   lines.push(`- fingerprint: \`${doc.fingerprint}\``);
   lines.push(
     `- policy: load \`${doc.policy.load}\`, top_k \`${doc.policy.top_k}\`, decay \`${doc.policy.decay}\``,
@@ -140,31 +171,53 @@ export function reportMarkdown(doc: ReportDoc): string {
   lines.push(`| arm | tokens |`);
   lines.push(`|---|---|`);
   lines.push(`| baseline (native) | ${tok(a.tokensBaseline)} |`);
-  lines.push(`| routed (nozzles 1+2) | ${tok(a.tokensRouted)} (−${pct(a.reductionRoutedPct)}%) |`);
-  lines.push(`| pruned (all three) | ${tok(a.tokensPruned)} (−${pct(a.reductionPrunedPct)}%) |`);
+  lines.push(
+    `| routed (nozzles 1+2) | ${tok(a.tokensRouted)} (−${pct(a.reductionRoutedPct)}%) |`,
+  );
+  lines.push(
+    `| pruned (all three) | ${tok(a.tokensPruned)} (−${pct(a.reductionPrunedPct)}%) |`,
+  );
   lines.push("");
-  lines.push(`Savings attribution: skills ${tok(a.skillsSavedTokens)}, tool schemas ${tok(a.toolsSavedTokens)}, pruned history ${tok(a.historySavedTokens)} tokens.`);
+  lines.push(
+    `Savings attribution: skills ${tok(a.skillsSavedTokens)}, tool schemas ${tok(a.toolsSavedTokens)}, pruned history ${tok(a.historySavedTokens)} tokens.`,
+  );
   lines.push("");
   lines.push(`## Jev spend (cold, what a first live run would cost)`);
   lines.push("");
-  lines.push(`${tok(a.jevColdTokens)} input tokens over ${a.jevRequests} requests ≈ $${a.jevColdUsd.toFixed(4)} at $0.042/Mtok. Replays over the recorded cache are free.`);
+  lines.push(
+    `${tok(a.jevColdTokens)} input tokens over ${a.jevRequests} requests ≈ $${a.jevColdUsd.toFixed(4)} at $0.042/Mtok. Replays over the recorded cache are free.`,
+  );
   lines.push("");
   lines.push(`## Nozzle 3 ground truth`);
   lines.push("");
-  lines.push(`- pruned pairs: ${a.prunedPairs} (${tok(a.prunedTokens)} tokens reclaimed at boundaries)`);
-  lines.push(`- false prunes: ${a.falsePrune}; missed savings (kept, never recurred): ${a.falseKeep}`);
-  lines.push(`- namespace misses (surfaced only via escape hatch): ${a.namespaceMisses}`);
+  lines.push(
+    `- pruned pairs: ${a.prunedPairs} (${tok(a.prunedTokens)} tokens reclaimed at boundaries)`,
+  );
+  lines.push(
+    `- false prunes: ${a.falsePrune}; missed savings (kept, never recurred): ${a.falseKeep}`,
+  );
+  lines.push(
+    `- namespace misses (surfaced only via escape hatch): ${a.namespaceMisses}`,
+  );
   if (a.degradedSkillsSessions > 0) {
-    lines.push(`- ${a.degradedSkillsSessions}/${a.sessions} sessions ran skills fail-static (no recorded scores; savings from nozzles 1 excluded there)`);
+    lines.push(
+      `- ${a.degradedSkillsSessions}/${a.sessions} sessions ran skills fail-static (no recorded scores; savings from nozzles 1 excluded there)`,
+    );
   }
   if (doc.labels !== undefined) {
     lines.push("");
     lines.push(`## Label metrics (golden set, recorded scores)`);
     lines.push("");
-    lines.push(`- judgments: ${doc.labels.judgments} (relevant: ${doc.labels.relevantJudgments}, irrelevant: ${doc.labels.irrelevantJudgments}, min relevant score ${doc.labels.minRelevantScore})`);
-    lines.push(`- irrelevant false-positives at threshold ${doc.policy.load}: ${doc.labels.fpAtThreshold} (${pct(doc.labels.fpRateAtThreshold * 100)}%)`);
+    lines.push(
+      `- judgments: ${doc.labels.judgments} (relevant: ${doc.labels.relevantJudgments}, irrelevant: ${doc.labels.irrelevantJudgments}, min relevant score ${doc.labels.minRelevantScore})`,
+    );
+    lines.push(
+      `- irrelevant false-positives at threshold ${doc.policy.load}: ${doc.labels.fpAtThreshold} (${pct(doc.labels.fpRateAtThreshold * 100)}%)`,
+    );
     if (doc.labels.loadedNotLabeled.length > 0) {
-      lines.push(`- loaded-but-not-labeled: ${doc.labels.loadedNotLabeled.map((l) => `${l.proj}/${l.skill}`).join(", ")}`);
+      lines.push(
+        `- loaded-but-not-labeled: ${doc.labels.loadedNotLabeled.map((l) => `${l.proj}/${l.skill}`).join(", ")}`,
+      );
     } else {
       lines.push(`- loaded-but-not-labeled: none`);
     }
@@ -172,18 +225,24 @@ export function reportMarkdown(doc: ReportDoc): string {
   lines.push("");
   lines.push(`## Per-session`);
   lines.push("");
-  lines.push(`| proj | epochs | calls | baseline | routed | pruned | red. % | pruned pairs |`);
+  lines.push(
+    `| proj | epochs | calls | baseline | routed | pruned | red. % | pruned pairs |`,
+  );
   lines.push(`|---|---|---|---|---|---|---|---|`);
   for (const r of doc.sessions) {
-    const red = r.baseline.textBytes > 0
-      ? ((r.baseline.textBytes - r.pruned.textBytes) / r.baseline.textBytes) * 100
-      : 0;
+    const red =
+      r.baseline.textBytes > 0
+        ? ((r.baseline.textBytes - r.pruned.textBytes) / r.baseline.textBytes) *
+          100
+        : 0;
     lines.push(
       `| ${r.proj} | ${r.epochs} | ${r.calls} | ${tok(estimateTokens(r.baseline.textBytes))} | ${tok(estimateTokens(r.routed.textBytes))} | ${tok(estimateTokens(r.pruned.textBytes))} | ${pct(red)} | ${r.prunedPairs} |`,
     );
   }
   lines.push("");
-  lines.push(`Token model: bytes/3.5 estimator (documented in eval/README.md). Image bytes ride the same constant and are reported separately (${tok(a.imageBytesBaseline)} bytes across the corpus in the baseline arm).`);
+  lines.push(
+    `Token model: bytes/3.5 estimator (documented in eval/README.md). Image bytes ride the same constant and are reported separately (${tok(a.imageBytesBaseline)} bytes across the corpus in the baseline arm).`,
+  );
   lines.push("");
   return lines.join("\n");
 }

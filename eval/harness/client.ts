@@ -27,7 +27,8 @@ export function saveCache(path: string, cache: ScoreCache): void {
 /** canonical request serialization: sorted question keys, no whitespace variance */
 export function canonicalRequest(req: JevRequest): string {
   const questions: Record<string, JevRequest["questions"][string]> = {};
-  for (const id of Object.keys(req.questions).sort()) questions[id] = req.questions[id];
+  for (const id of Object.keys(req.questions).sort())
+    questions[id] = req.questions[id];
   return JSON.stringify({ model: req.model, questions, state: req.state });
 }
 
@@ -40,7 +41,9 @@ export function createCacheClient(cache: ScoreCache): JevClient {
     const key = requestKey(req);
     const hit = cache[key];
     if (hit === undefined) {
-      throw new Error(`CACHE_KEY_MISS: ${key} (run with --live to record, or extend fixtures)`);
+      throw new Error(
+        `CACHE_KEY_MISS: ${key} (run with --live to record, or extend fixtures)`,
+      );
     }
     return hit;
   };
@@ -70,7 +73,11 @@ export function createLiveClient(opts: LiveClientOptions): JevClient {
         Authorization: `Bearer ${opts.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ state: req.state, model: req.model, questions: req.questions }),
+      body: JSON.stringify({
+        state: req.state,
+        model: req.model,
+        questions: req.questions,
+      }),
     });
     if (!res.ok) {
       throw new Error(`JEV_HTTP_${res.status}: key=${key}`);

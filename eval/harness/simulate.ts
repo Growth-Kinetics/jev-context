@@ -8,11 +8,22 @@
 // Jev client in live mode). Namespace activity and prune verdicts are derived from
 // transcript ground truth (documented proxies; see eval/README.md "Simulation policies").
 
-import { buildDigest, pairsInEpoch, toolResultBytes, chatMessageBytes, isToolResultMessage } from "./session.ts";
-import { namespaceOf, namespaceBytes, routedNamespaces } from "./catalog.ts";
-import { selectSkills, decayDue, shouldEvict, type ThresholdPolicy } from "./policy.ts";
-import { estimateTokens } from "./tokens.ts";
 import type { Catalog } from "./catalog.ts";
+import { namespaceBytes, namespaceOf, routedNamespaces } from "./catalog.ts";
+import {
+  decayDue,
+  selectSkills,
+  shouldEvict,
+  type ThresholdPolicy,
+} from "./policy.ts";
+import {
+  buildDigest,
+  chatMessageBytes,
+  isToolResultMessage,
+  pairsInEpoch,
+  toolResultBytes,
+} from "./session.ts";
+import { estimateTokens } from "./tokens.ts";
 import type { ParsedSession, ToolPair } from "./types.ts";
 
 export interface ScoresContext {
@@ -21,7 +32,9 @@ export interface ScoresContext {
   digest: string;
 }
 
-export type ScoresProvider = (ctx: ScoresContext) => Promise<Record<string, number>>;
+export type ScoresProvider = (
+  ctx: ScoresContext,
+) => Promise<Record<string, number>>;
 
 export interface SpendLine {
   kind: "skill-load" | "skill-decay" | "namespace-batch" | "prune-batch";
@@ -64,7 +77,13 @@ export interface ArmTotals {
 }
 
 function emptyArm(): ArmTotals {
-  return { textBytes: 0, imageBytes: 0, skillsBytes: 0, toolsBytes: 0, historyBytes: 0 };
+  return {
+    textBytes: 0,
+    imageBytes: 0,
+    skillsBytes: 0,
+    toolsBytes: 0,
+    historyBytes: 0,
+  };
 }
 
 /** tool names called per epoch (ground truth from the transcript) */
@@ -77,7 +96,11 @@ function toolsCalledPerEpoch(session: ParsedSession): Set<string>[] {
 }
 
 /** namespace active in epoch e iff one of its tools was called in any earlier epoch */
-function activeNamespacesAt(e: number, perEpoch: Set<string>[], catalog: Catalog): Set<string> {
+function activeNamespacesAt(
+  e: number,
+  perEpoch: Set<string>[],
+  catalog: Catalog,
+): Set<string> {
   const active = new Set<string>();
   for (let f = 0; f < e; f++) {
     for (const tool of perEpoch[f]) active.add(namespaceOf(tool, catalog));
@@ -86,7 +109,10 @@ function activeNamespacesAt(e: number, perEpoch: Set<string>[], catalog: Catalog
 }
 
 /** recurrence proxy verdict: prune iff the tool is never called in any later epoch */
-export function recurrencePruneVerdict(pair: ToolPair, perEpoch: Set<string>[]): boolean {
+export function recurrencePruneVerdict(
+  pair: ToolPair,
+  perEpoch: Set<string>[],
+): boolean {
   for (let f = pair.epochIndex + 1; f < perEpoch.length; f++) {
     if (perEpoch[f].has(pair.call.name)) return false;
   }
@@ -94,7 +120,10 @@ export function recurrencePruneVerdict(pair: ToolPair, perEpoch: Set<string>[]):
 }
 
 /** verdict source: recurrence proxy by default; a live override (callId -> prune?) wins */
-export type PruneVerdictSource = (pair: ToolPair, perEpoch: Set<string>[]) => boolean;
+export type PruneVerdictSource = (
+  pair: ToolPair,
+  perEpoch: Set<string>[],
+) => boolean;
 
 export interface SimulateOptions {
   proj: string;
@@ -107,14 +136,23 @@ export interface SimulateOptions {
   pruneVerdicts?: PruneVerdictSource;
 }
 
-export async function simulate(session: ParsedSession, opts: SimulateOptions): Promise<SessionResult> {
+export async function simulate(
+  session: ParsedSession,
+  opts: SimulateOptions,
+): Promise<SessionResult> {
   const { catalog, policy } = opts;
   const perEpoch = toolsCalledPerEpoch(session);
-  const allSkillBytes = Object.values(catalog.skills).reduce((a, b) => a + b, 0);
+  const allSkillBytes = Object.values(catalog.skills).reduce(
+    (a, b) => a + b,
+    0,
+  );
   const allNamespaceNames = routedNamespaces(catalog);
   const allToolsBytes =
     namespaceBytes("core", catalog).bytes +
-    allNamespaceNames.reduce((acc, ns) => acc + namespaceBytes(ns, catalog).bytes, 0);
+    allNamespaceNames.reduce(
+      (acc, ns) => acc + namespaceBytes(ns, catalog).bytes,
+      0,
+    );
 
   // ---- prune verdicts (nozzle 3): judged once per pair at its epoch's close; the final
   // epoch is never judged (no subsequent turn exists to need the output).
@@ -122,7 +160,8 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
   let falsePrune = 0;
   let falseKeep = 0;
   let prunedResultBytes = 0;
-  const verdictSource: PruneVerdictSource = opts.pruneVerdicts ?? recurrencePruneVerdict;
+  const verdictSource: PruneVerdictSource =
+    opts.pruneVerdicts ?? recurrencePruneVerdict;
   for (let e = 0; e < session.epochs.length; e++) {
     for (const pair of pairsInEpoch(session.epochs[e])) {
       const isLastEpoch = e === session.epochs.length - 1;
@@ -137,7 +176,9 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
         // The recurrence proxy cannot produce one; live verdicts can.
         if (!recurrencePruneVerdict(pair, perEpoch)) falsePrune += 1;
       } else {
-        falseKeep += 1;
+        // ground-truth check: a kept pair whose tool never recurred is a missed saving.
+        // The recurrence proxy never keeps a non-recurring pair; live verdicts can.
+        if (recurrencePruneVerdict(pair, perEpoch)) falseKeep += 1;
       }
     }
   }
@@ -184,7 +225,9 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
             epoch: e,
             stateBytes: digestBytes,
             questionBytes: (catalog.skills[name] ?? 0) + 64,
-            tokensEstimated: estimateTokens(digestBytes + (catalog.skills[name] ?? 0) + 64),
+            tokensEstimated: estimateTokens(
+              digestBytes + (catalog.skills[name] ?? 0) + 64,
+            ),
           });
           if (shouldEvict(score, policy)) active.delete(name);
         }
@@ -196,7 +239,10 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
         for (const name of Object.keys(catalog.skills)) {
           if (!active.has(name)) inactiveScores[name] = scores[name] ?? 0;
         }
-        for (const name of selectSkills(inactiveScores, policy).slice(0, free)) {
+        for (const name of selectSkills(inactiveScores, policy).slice(
+          0,
+          free,
+        )) {
           active.set(name, e);
           loadedEver.add(name);
         }
@@ -237,17 +283,25 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
         epoch: e - 1,
         stateBytes: Math.min(epochBytes, 64 * 1024),
         questionBytes: 96 * Math.max(pairs, 1),
-        tokensEstimated: estimateTokens(Math.min(epochBytes, 64 * 1024) + 96 * Math.max(pairs, 1)),
+        tokensEstimated: estimateTokens(
+          Math.min(epochBytes, 64 * 1024) + 96 * Math.max(pairs, 1),
+        ),
       });
     }
 
     // ---- context accounting at this epoch's start
     const governedSkillsBytes = degraded
       ? allSkillBytes
-      : [...active.keys()].reduce((acc, name) => acc + (catalog.skills[name] ?? 0), 0);
+      : [...active.keys()].reduce(
+          (acc, name) => acc + (catalog.skills[name] ?? 0),
+          0,
+        );
     const governedToolsBytes =
       namespaceBytes("core", catalog).bytes +
-      [...activeNs].reduce((acc, ns) => acc + namespaceBytes(ns, catalog).bytes, 0);
+      [...activeNs].reduce(
+        (acc, ns) => acc + namespaceBytes(ns, catalog).bytes,
+        0,
+      );
 
     // history through epoch e-1: full vs pruned-pair-surgery
     let fullHistory = 0;
@@ -259,7 +313,8 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
         const msg = entry.message;
         if (msg === undefined) continue;
         if (isToolResultMessage(msg)) {
-          const pairPruned = msg.toolCallId !== undefined && prunedCallIds.has(msg.toolCallId);
+          const pairPruned =
+            msg.toolCallId !== undefined && prunedCallIds.has(msg.toolCallId);
           const b = toolResultBytes(msg);
           fullHistory += b.textBytes;
           fullImages += b.imageBytes;
@@ -276,7 +331,13 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
         let drop = 0;
         for (const part of msg.content) {
           if (part.type === "toolCall" && prunedCallIds.has(part.id)) {
-            drop += Buffer.byteLength(JSON.stringify({ id: part.id, name: part.name, arguments: part.arguments }));
+            drop += Buffer.byteLength(
+              JSON.stringify({
+                id: part.id,
+                name: part.name,
+                arguments: part.arguments,
+              }),
+            );
           }
         }
         prunedHistory += b.textBytes - drop;
@@ -287,8 +348,20 @@ export async function simulate(session: ParsedSession, opts: SimulateOptions): P
     const n = Math.max(epoch.callCount, 1); // a turn with zero assistant turns still bills once
     for (const [arm, armSkills, armTools, armHistory, armImages] of [
       [baseline, allSkillBytes, allToolsBytes, fullHistory, fullImages],
-      [routed, governedSkillsBytes, governedToolsBytes, fullHistory, fullImages],
-      [pruned, governedSkillsBytes, governedToolsBytes, prunedHistory, prunedImages],
+      [
+        routed,
+        governedSkillsBytes,
+        governedToolsBytes,
+        fullHistory,
+        fullImages,
+      ],
+      [
+        pruned,
+        governedSkillsBytes,
+        governedToolsBytes,
+        prunedHistory,
+        prunedImages,
+      ],
     ] as Array<[ArmTotals, number, number, number, number]>) {
       arm.textBytes += (armSkills + armTools + armHistory) * n;
       arm.imageBytes += armImages * n;

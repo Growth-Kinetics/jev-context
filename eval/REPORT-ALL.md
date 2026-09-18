@@ -1,18 +1,18 @@
 # Jev context governor — benchmark report
 
-- corpus: `all` (88 sessions, 2790 epochs, 22574 LLM calls)
-- fingerprint: `ed32108b5ba9898c35e22698c59894df4013513601977b0282c663f6b8a7716a`
+- corpus: `all` (88 sessions, 2790 epochs, 22578 LLM calls)
+- fingerprint: `9d6b309bb7ebc067ed62a56782daaab3c4e1e5634db17b091cc56e02dc055c0f`
 - policy: load `0.6`, top_k `3`, decay `0.25`
 
 ## Aggregate counterfactual (context tokens billed per call)
 
 | arm | tokens |
 |---|---|
-| baseline (native) | 6,534,137,455 |
-| routed (nozzles 1+2) | 6,357,454,998 (−2.70%) |
-| pruned (all three) | 6,287,686,163 (−3.77%) |
+| baseline (native) | 6,536,352,745 |
+| routed (nozzles 1+2) | 6,359,662,410 (−2.70%) |
+| pruned (all three) | 6,289,863,299 (−3.77%) |
 
-Savings attribution: skills 80,179,014, tool schemas 96,503,447, pruned history 69,768,835 tokens.
+Savings attribution: skills 80,179,014, tool schemas 96,511,326, pruned history 69,799,110 tokens.
 
 ## Jev spend (cold, what a first live run would cost)
 
@@ -21,8 +21,8 @@ Savings attribution: skills 80,179,014, tool schemas 96,503,447, pruned history 
 ## Nozzle 3 ground truth
 
 - pruned pairs: 1516 (6,373,150 tokens reclaimed at boundaries)
-- false prunes: 0; missed savings (kept, never recurred): 18881
-- namespace misses (surfaced only via escape hatch): 277
+- false prunes: 0; missed savings (kept, never recurred): 0
+- namespace misses (surfaced only via escape hatch): 278
 - 76/88 sessions ran skills fail-static (no recorded scores; savings from nozzles 1 excluded there)
 
 ## Label metrics (golden set, recorded scores)
@@ -101,7 +101,7 @@ Savings attribution: skills 80,179,014, tool schemas 96,503,447, pruned history 
 | home-alex-.herdr-worktrees-mcd-rdd-platform-right-sizing | 10 | 247 | 30,332,467 | 29,373,590 | 28,355,061 | 6.52 | 44 |
 | home-alex-.herdr-worktrees-mcd-rdd-platform-trade-areas | 7 | 169 | 17,664,459 | 16,828,728 | 15,032,846 | 14.90 | 30 |
 | home-alex-.herdr-worktrees-platform-coa | 30 | 323 | 77,272,915 | 75,649,120 | 72,491,280 | 6.19 | 69 |
-| home-alex-.herdr-worktrees-platform-coa-parser | 30 | 681 | 224,754,429 | 222,134,441 | 221,443,981 | 1.47 | 13 |
+| home-alex-.herdr-worktrees-platform-coa-parser | 30 | 685 | 226,969,719 | 224,341,853 | 223,621,117 | 1.48 | 13 |
 | home-alex-.herdr-worktrees-platform-samples-sheet | 28 | 321 | 74,990,642 | 73,395,759 | 72,762,593 | 2.97 | 14 |
 | home-alex-.herdr-worktrees-web-admin-rms | 21 | 368 | 63,148,864 | 61,840,903 | 61,351,455 | 2.85 | 22 |
 | home-alex-.herdr-worktrees-web-admin-s0-surface | 1 | 85 | 5,244,111 | 4,694,331 | 4,694,331 | 10.48 | 0 |
@@ -124,4 +124,4 @@ Savings attribution: skills 80,179,014, tool schemas 96,503,447, pruned history 
 | root-projects-trader45 | 7 | 128 | 11,713,334 | 11,035,880 | 11,028,749 | 5.84 | 1 |
 | root-projects-withanna | 1 | 98 | 6,046,152 | 5,412,288 | 5,412,288 | 10.48 | 0 |
 
-Token model: bytes/3.5 estimator (documented in eval/README.md). Image bytes ride the same constant and are reported separately (3,957,428,020 bytes across the corpus in the baseline arm).
+Token model: bytes/3.5 estimator (documented in eval/README.md). Image bytes ride the same constant and are reported separately (3,959,473,588 bytes across the corpus in the baseline arm).

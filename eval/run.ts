@@ -5,14 +5,41 @@
 // PI_TYPESAFE_JEV or --key-file, hits the Jev endpoint through the injectable client, and
 // writes results into the recorded cache (scores only; the key is never logged or stored).
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { loadCatalog, type Catalog } from "./harness/catalog.ts";
+import { type Catalog, loadCatalog } from "./harness/catalog.ts";
+import {
+  type BaselineEntry,
+  type ExpectedFile,
+  labelMetrics,
+  runGate,
+} from "./harness/check.ts";
+import {
+  createLiveClient,
+  loadCache,
+  requestKey,
+  type ScoreCache,
+  saveCache,
+} from "./harness/client.ts";
+import {
+  buildReport,
+  type LabelMetrics,
+  reportJson,
+  reportMarkdown,
+} from "./harness/report.ts";
 import { parseSession } from "./harness/session.ts";
-import { simulate, type ScoresProvider, type SessionResult } from "./harness/simulate.ts";
-import { buildReport, reportJson, reportMarkdown, type LabelMetrics } from "./harness/report.ts";
-import { runGate, labelMetrics, type BaselineEntry, type ExpectedFile } from "./harness/check.ts";
-import { createLiveClient, loadCache, saveCache, requestKey, type ScoreCache } from "./harness/client.ts";
+import {
+  type ScoresProvider,
+  type SessionResult,
+  simulate,
+} from "./harness/simulate.ts";
 import type { JevRequest, JevResponse } from "./harness/types.ts";
 
 const EVAL_DIR = new URL(".", import.meta.url).pathname;
@@ -48,7 +75,11 @@ function scanSkillBodies(roots: string[]): Map<string, string> {
     for (const dir of readdirSync(root, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
       const skillPath = join(root, dir.name, "SKILL.md");
-      if (existsSync(skillPath) && statSync(skillPath).isFile() && !bodies.has(dir.name)) {
+      if (
+        existsSync(skillPath) &&
+        statSync(skillPath).isFile() &&
+        !bodies.has(dir.name)
+      ) {
         bodies.set(dir.name, readFileSync(skillPath, "utf8"));
       }
     }
@@ -89,7 +120,9 @@ async function main(): Promise<number> {
   if (args.length === 0) usage();
 
   const expected = readJson<ExpectedFile>(join(EVAL_DIR, "expected.json"));
-  const baseline = readJson<BaselineEntry[]>(join(EVAL_DIR, "baseline-results.json"));
+  const baseline = readJson<BaselineEntry[]>(
+    join(EVAL_DIR, "baseline-results.json"),
+  );
 
   if (wantCheck) {
     const failures = runGate(expected, baseline);
@@ -103,7 +136,9 @@ async function main(): Promise<number> {
   }
 
   // ---- corpus selection
-  const golden = readJson<GoldenEntry[]>(join(EVAL_DIR, "golden-sessions.json"));
+  const golden = readJson<GoldenEntry[]>(
+    join(EVAL_DIR, "golden-sessions.json"),
+  );
   const corpus =
     sessionPaths.length > 0
       ? sessionPaths.map((p) => ({ path: p, proj: p }))
@@ -111,7 +146,11 @@ async function main(): Promise<number> {
         ? golden
         : golden.filter((g) => baseline.some((b) => b.proj === g.proj));
   const corpusName =
-    sessionPaths.length > 0 ? `paths:${sessionPaths.length}` : corpusArg === "all" ? "all" : "golden";
+    sessionPaths.length > 0
+      ? `paths:${sessionPaths.length}`
+      : corpusArg === "all"
+        ? "all"
+        : "golden";
   // ---- scores: recorded table (fixture) or live client
   const recorded = new Map(baseline.map((b) => [b.proj, b.scores]));
   const cachePath = join(EVAL_DIR, "fixtures", "recorded-cache.json");
@@ -120,9 +159,17 @@ async function main(): Promise<number> {
 
   let provider: ScoresProvider;
   if (live) {
-    const apiKey = keyFile !== undefined
-      ? readFileSync(keyFile, "utf8").trim().split("\n").find((l) => l.includes("="))?.split("=").slice(1).join("=").trim() ?? ""
-      : process.env.PI_TYPESAFE_JEV ?? "";
+    const apiKey =
+      keyFile !== undefined
+        ? (readFileSync(keyFile, "utf8")
+            .trim()
+            .split("\n")
+            .find((l) => l.includes("="))
+            ?.split("=")
+            .slice(1)
+            .join("=")
+            .trim() ?? "")
+        : (process.env.PI_TYPESAFE_JEV ?? "");
     if (apiKey === "") {
       console.error("LIVE_KEY_MISSING: set PI_TYPESAFE_JEV or pass --key-file");
       return 2;
@@ -138,7 +185,12 @@ async function main(): Promise<number> {
       const key = requestKey(req);
       const cached = cache[key] !== undefined;
       const res = await base(req);
-      ledger.push({ key, inputTokens: res.usage?.input_tokens ?? 0, latencyMs: res.latencyMs ?? 0, cached });
+      ledger.push({
+        key,
+        inputTokens: res.usage?.input_tokens ?? 0,
+        latencyMs: res.latencyMs ?? 0,
+        cached,
+      });
       return res;
     };
     provider = async (ctx) => {
@@ -167,7 +219,8 @@ async function main(): Promise<number> {
   } else {
     provider = async (ctx) => {
       const scores = recorded.get(ctx.proj);
-      if (scores === undefined) throw new Error(`NO_RECORDED_SCORES: ${ctx.proj}`);
+      if (scores === undefined)
+        throw new Error(`NO_RECORDED_SCORES: ${ctx.proj}`);
       return scores;
     };
   }
@@ -185,14 +238,26 @@ async function main(): Promise<number> {
       skillsAvailable,
     });
     results.push(result);
-    console.error(`REPLAYED: proj=${entry.proj} epochs=${result.epochs} calls=${result.calls} degraded=${result.degradedSkills}`);
+    console.error(
+      `REPLAYED: proj=${entry.proj} epochs=${result.epochs} calls=${result.calls} degraded=${result.degradedSkills}`,
+    );
   }
 
   const metrics = labelMetrics(expected, baseline);
   const labels: LabelMetrics = metrics;
-  const doc = buildReport(corpusName, expected.threshold_policy, results, labels);
+  const doc = buildReport(
+    corpusName,
+    expected.threshold_policy,
+    results,
+    labels,
+  );
 
-  const base = sessionPaths.length > 0 ? "REPORT-PATHS" : corpusName === "all" ? "REPORT-ALL" : "REPORT";
+  const base =
+    sessionPaths.length > 0
+      ? "REPORT-PATHS"
+      : corpusName === "all"
+        ? "REPORT-ALL"
+        : "REPORT";
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, `${base}.md`), reportMarkdown(doc));
   writeFileSync(join(outDir, `${base}.json`), reportJson(doc));
@@ -211,7 +276,9 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (err) => {
-    console.error(`HARNESS_FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      `HARNESS_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exit(1);
   },
 );

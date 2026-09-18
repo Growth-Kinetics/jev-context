@@ -21,7 +21,7 @@ Savings attribution: skills 80,179,014, tool schemas 8,166,807, pruned history 7
 ## Nozzle 3 ground truth
 
 - pruned pairs: 223 (1,810,536 tokens reclaimed at boundaries)
-- false prunes: 0; missed savings (kept, never recurred): 1349
+- false prunes: 0; missed savings (kept, never recurred): 0
 - namespace misses (surfaced only via escape hatch): 41
 
 ## Label metrics (golden set, recorded scores)

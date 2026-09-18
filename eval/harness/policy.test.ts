@@ -1,7 +1,13 @@
 // Tests: threshold policy — load 0.6, top-K 3, decay 0.25 (SESSION_SPEC_2026-09-18-001).
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
-import { selectSkills, decayDue, shouldEvict, type ThresholdPolicy } from "./policy.ts";
+import { test } from "node:test";
+import {
+  decayDue,
+  selectSkills,
+  shouldEvict,
+  type ThresholdPolicy,
+} from "./policy.ts";
 
 const policy: ThresholdPolicy = { load: 0.6, top_k: 3, decay: 0.25 };
 
@@ -14,7 +20,10 @@ test("only skills >= 0.6 enter the active set, capped at top-3 by score", () => 
 });
 
 test("ties break deterministically by name", () => {
-  const loaded = selectSkills({ zzz: 0.9, aaa: 0.9, mmm: 0.9, bbb: 0.95 }, policy);
+  const loaded = selectSkills(
+    { zzz: 0.9, aaa: 0.9, mmm: 0.9, bbb: 0.95 },
+    policy,
+  );
   assert.deepEqual(loaded, ["bbb", "aaa", "mmm"]);
 });
 

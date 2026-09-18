@@ -27,7 +27,10 @@ export interface GateFailure {
   detail: string;
 }
 
-export function labelMetrics(expected: ExpectedFile, baseline: BaselineEntry[]): {
+export function labelMetrics(
+  expected: ExpectedFile,
+  baseline: BaselineEntry[],
+): {
   judgments: number;
   relevantJudgments: number;
   irrelevantJudgments: number;
@@ -48,9 +51,12 @@ export function labelMetrics(expected: ExpectedFile, baseline: BaselineEntry[]):
     const ranked = Object.entries(entry.scores)
       .filter(([, score]) => score >= threshold)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const loaded = ranked.slice(0, expected.threshold_policy.top_k).map(([name]) => name);
+    const loaded = ranked
+      .slice(0, expected.threshold_policy.top_k)
+      .map(([name]) => name);
     for (const skill of loaded) {
-      if (!labeled.includes(skill)) loadedNotLabeled.push({ proj: entry.proj, skill });
+      if (!labeled.includes(skill))
+        loadedNotLabeled.push({ proj: entry.proj, skill });
     }
     for (const [skill, score] of Object.entries(entry.scores)) {
       judgments += 1;
@@ -74,11 +80,20 @@ export function labelMetrics(expected: ExpectedFile, baseline: BaselineEntry[]):
   };
 }
 
-export function runGate(expected: ExpectedFile, baseline: BaselineEntry[]): GateFailure[] {
+export function runGate(
+  expected: ExpectedFile,
+  baseline: BaselineEntry[],
+): GateFailure[] {
   const failures: GateFailure[] = [];
   const ratchet = expected.ratchet;
   if (ratchet === undefined) {
-    return [{ check: "ratchet-present", detail: "expected.json has no ratchet section; record floors and fp_ceiling" }];
+    return [
+      {
+        check: "ratchet-present",
+        detail:
+          "expected.json has no ratchet section; record floors and fp_ceiling",
+      },
+    ];
   }
   if (ratchet.threshold_at_record !== expected.threshold_policy.load) {
     failures.push({
@@ -93,16 +108,25 @@ export function runGate(expected: ExpectedFile, baseline: BaselineEntry[]): Gate
     const skill = key.slice(slash + 1);
     const entry = byProj.get(proj);
     if (entry === undefined) {
-      failures.push({ check: "floor", detail: `${key}: proj missing from baseline-results.json` });
+      failures.push({
+        check: "floor",
+        detail: `${key}: proj missing from baseline-results.json`,
+      });
       continue;
     }
     const score = entry.scores[skill];
     if (score === undefined) {
-      failures.push({ check: "floor", detail: `${key}: skill missing from recorded scores` });
+      failures.push({
+        check: "floor",
+        detail: `${key}: skill missing from recorded scores`,
+      });
       continue;
     }
     if (score < floor) {
-      failures.push({ check: "floor", detail: `${key}: recorded ${score} < floor ${floor}` });
+      failures.push({
+        check: "floor",
+        detail: `${key}: recorded ${score} < floor ${floor}`,
+      });
     }
   }
   const metrics = labelMetrics(expected, baseline);

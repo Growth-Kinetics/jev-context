@@ -1,8 +1,14 @@
 // Tests: the injectable Jev client boundary. No network: the live client is exercised
 // only through an injected fetch stub (VERIFYING.md section 4: no real API calls in tests).
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
-import { createCacheClient, createLiveClient, requestKey, canonicalRequest } from "./client.ts";
+import { test } from "node:test";
+import {
+  canonicalRequest,
+  createCacheClient,
+  createLiveClient,
+  requestKey,
+} from "./client.ts";
 import type { JevRequest, JevResponse } from "./types.ts";
 
 const req: JevRequest = {
@@ -27,7 +33,10 @@ test("request key is stable under question-map insertion order", () => {
 });
 
 test("cache client returns recorded responses deterministically", async () => {
-  const response: JevResponse = { answers: { should_load: 0.92 }, usage: { input_tokens: 1234 } };
+  const response: JevResponse = {
+    answers: { should_load: 0.92 },
+    usage: { input_tokens: 1234 },
+  };
   const client = createCacheClient({ [requestKey(req)]: response });
   const a = await client(req);
   const b = await client(req);
@@ -47,11 +56,22 @@ test("live client hits the endpoint once, records into the cache, then serves fr
     calls += 1;
     const body = JSON.parse(String(init?.body)) as JevRequest;
     assert.equal(body.model, "jev-latest");
-    return new Response(JSON.stringify({ answers: { should_load: { noul: 0.88 } }, usage: { input_tokens: 42 } }), {
-      status: 200,
-    });
+    return new Response(
+      JSON.stringify({
+        answers: { should_load: { noul: 0.88 } },
+        usage: { input_tokens: 42 },
+      }),
+      {
+        status: 200,
+      },
+    );
   };
-  const client = createLiveClient({ endpoint: "https://example.invalid/api", apiKey: "test-key", cache, fetchImpl: stub });
+  const client = createLiveClient({
+    endpoint: "https://example.invalid/api",
+    apiKey: "test-key",
+    cache,
+    fetchImpl: stub,
+  });
   const first = await client(req);
   assert.equal(first.answers.should_load, 0.88);
   assert.equal(first.usage?.input_tokens, 42);
@@ -63,7 +83,12 @@ test("live client hits the endpoint once, records into the cache, then serves fr
 
 test("live client surfaces HTTP errors as JEV_HTTP_<code>", async () => {
   const stub: typeof fetch = async () => new Response("nope", { status: 429 });
-  const client = createLiveClient({ endpoint: "https://example.invalid/api", apiKey: "k", cache: {}, fetchImpl: stub });
+  const client = createLiveClient({
+    endpoint: "https://example.invalid/api",
+    apiKey: "k",
+    cache: {},
+    fetchImpl: stub,
+  });
   await assert.rejects(() => client(req), /JEV_HTTP_429/);
 });
 

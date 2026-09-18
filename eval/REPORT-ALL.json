@@ -1,6 +1,6 @@
 {
  "corpus": "all",
- "fingerprint": "ed32108b5ba9898c35e22698c59894df4013513601977b0282c663f6b8a7716a",
+ "fingerprint": "9d6b309bb7ebc067ed62a56782daaab3c4e1e5634db17b091cc56e02dc055c0f",
  "policy": {
   "load": 0.6,
   "top_k": 3,
@@ -9,25 +9,25 @@
  "aggregate": {
   "sessions": 88,
   "degradedSkillsSessions": 76,
-  "calls": 22574,
+  "calls": 22578,
   "epochs": 2790,
-  "tokensBaseline": 6534137455,
-  "tokensRouted": 6357454998,
-  "tokensPruned": 6287686163,
+  "tokensBaseline": 6536352745,
+  "tokensRouted": 6359662410,
+  "tokensPruned": 6289863299,
   "skillsSavedTokens": 80179014,
-  "toolsSavedTokens": 96503447,
-  "historySavedTokens": 69768835,
-  "reductionRoutedPct": 2.7039905146898997,
-  "reductionPrunedPct": 3.7717494267190927,
+  "toolsSavedTokens": 96511326,
+  "historySavedTokens": 69799110,
+  "reductionRoutedPct": 2.7031946085706546,
+  "reductionPrunedPct": 3.771054831588652,
   "prunedPairs": 1516,
   "prunedTokens": 6373150,
   "falsePrune": 0,
-  "falseKeep": 18881,
-  "namespaceMisses": 277,
+  "falseKeep": 0,
+  "namespaceMisses": 278,
   "jevColdTokens": 107202424,
   "jevColdUsd": 4.502501808,
   "jevRequests": 7825,
-  "imageBytesBaseline": 3957428020
+  "imageBytesBaseline": 3959473588
  },
  "sessions": [
   {
@@ -67,7 +67,7 @@
    "prunedPairs": 38,
    "prunedTokens": 1515056,
    "falsePrune": 0,
-   "falseKeep": 35,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -639,7 +639,7 @@
    "prunedPairs": 5,
    "prunedTokens": 12557,
    "falsePrune": 0,
-   "falseKeep": 38,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -2375,7 +2375,7 @@
    "prunedPairs": 19,
    "prunedTokens": 13495,
    "falsePrune": 0,
-   "falseKeep": 140,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -2807,7 +2807,7 @@
    "prunedPairs": 6,
    "prunedTokens": 1309,
    "falsePrune": 0,
-   "falseKeep": 180,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -3265,7 +3265,7 @@
    "prunedPairs": 11,
    "prunedTokens": 208166,
    "falsePrune": 0,
-   "falseKeep": 100,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -3597,7 +3597,7 @@
    "prunedPairs": 5,
    "prunedTokens": 742,
    "falsePrune": 0,
-   "falseKeep": 157,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -4138,7 +4138,7 @@
    "prunedPairs": 5,
    "prunedTokens": 1715,
    "falsePrune": 0,
-   "falseKeep": 292,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -4623,7 +4623,7 @@
    "prunedPairs": 15,
    "prunedTokens": 2651,
    "falsePrune": 0,
-   "falseKeep": 103,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -4817,7 +4817,7 @@
    "prunedPairs": 64,
    "prunedTokens": 513826,
    "falsePrune": 0,
-   "falseKeep": 69,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -4953,7 +4953,7 @@
    "prunedPairs": 25,
    "prunedTokens": 23514,
    "falsePrune": 0,
-   "falseKeep": 31,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -5074,7 +5074,7 @@
    "prunedPairs": 27,
    "prunedTokens": 616222,
    "falsePrune": 0,
-   "falseKeep": 82,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -5321,7 +5321,7 @@
    "prunedPairs": 4,
    "prunedTokens": 20705,
    "falsePrune": 0,
-   "falseKeep": 102,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -5530,7 +5530,7 @@
    "prunedPairs": 22,
    "prunedTokens": 14512,
    "falsePrune": 0,
-   "falseKeep": 165,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -5945,7 +5945,7 @@
    "prunedPairs": 3,
    "prunedTokens": 4703,
    "falsePrune": 0,
-   "falseKeep": 24,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -6269,7 +6269,7 @@
    "prunedPairs": 2,
    "prunedTokens": 706,
    "falsePrune": 0,
-   "falseKeep": 77,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -6516,7 +6516,7 @@
    "prunedPairs": 1,
    "prunedTokens": 37,
    "falsePrune": 0,
-   "falseKeep": 122,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -6735,7 +6735,7 @@
    "prunedPairs": 34,
    "prunedTokens": 37215,
    "falsePrune": 0,
-   "falseKeep": 60,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -6857,7 +6857,7 @@
    "prunedPairs": 16,
    "prunedTokens": 4732,
    "falsePrune": 0,
-   "falseKeep": 138,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -7022,7 +7022,7 @@
    "prunedPairs": 12,
    "prunedTokens": 6983,
    "falsePrune": 0,
-   "falseKeep": 238,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -7232,7 +7232,7 @@
    "prunedPairs": 33,
    "prunedTokens": 59837,
    "falsePrune": 0,
-   "falseKeep": 264,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -7970,7 +7970,7 @@
    "prunedPairs": 46,
    "prunedTokens": 46185,
    "falsePrune": 0,
-   "falseKeep": 79,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -8091,7 +8091,7 @@
    "prunedPairs": 6,
    "prunedTokens": 32358,
    "falsePrune": 0,
-   "falseKeep": 293,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -8326,7 +8326,7 @@
    "prunedPairs": 5,
    "prunedTokens": 1555,
    "falsePrune": 0,
-   "falseKeep": 1192,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -13434,7 +13434,7 @@
    "prunedPairs": 19,
    "prunedTokens": 51755,
    "falsePrune": 0,
-   "falseKeep": 261,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -13612,7 +13612,7 @@
    "prunedPairs": 2,
    "prunedTokens": 436,
    "falsePrune": 0,
-   "falseKeep": 237,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -13790,7 +13790,7 @@
    "prunedPairs": 5,
    "prunedTokens": 254,
    "falsePrune": 0,
-   "falseKeep": 47,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -13882,7 +13882,7 @@
    "prunedPairs": 1,
    "prunedTokens": 58,
    "falsePrune": 0,
-   "falseKeep": 102,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -14717,7 +14717,7 @@
    "prunedPairs": 21,
    "prunedTokens": 471745,
    "falsePrune": 0,
-   "falseKeep": 137,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -15006,7 +15006,7 @@
    "prunedPairs": 4,
    "prunedTokens": 232,
    "falsePrune": 0,
-   "falseKeep": 144,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -15634,7 +15634,7 @@
    "prunedPairs": 10,
    "prunedTokens": 3870,
    "falsePrune": 0,
-   "falseKeep": 577,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -16525,7 +16525,7 @@
    "prunedPairs": 1,
    "prunedTokens": 51,
    "falsePrune": 0,
-   "falseKeep": 12,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -16635,7 +16635,7 @@
    "prunedPairs": 8,
    "prunedTokens": 1327,
    "falsePrune": 0,
-   "falseKeep": 1021,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -23130,7 +23130,7 @@
    "prunedPairs": 36,
    "prunedTokens": 57066,
    "falsePrune": 0,
-   "falseKeep": 292,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -25325,7 +25325,7 @@
    "prunedPairs": 9,
    "prunedTokens": 20910,
    "falsePrune": 0,
-   "falseKeep": 158,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -27844,7 +27844,7 @@
    "prunedPairs": 13,
    "prunedTokens": 6329,
    "falsePrune": 0,
-   "falseKeep": 677,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -28556,7 +28556,7 @@
    "prunedPairs": 54,
    "prunedTokens": 33394,
    "falsePrune": 0,
-   "falseKeep": 183,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -31101,7 +31101,7 @@
    "prunedPairs": 10,
    "prunedTokens": 16370,
    "falsePrune": 0,
-   "falseKeep": 53,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -31209,7 +31209,7 @@
    "prunedPairs": 8,
    "prunedTokens": 4155,
    "falsePrune": 0,
-   "falseKeep": 191,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -31582,7 +31582,7 @@
    "prunedPairs": 3,
    "prunedTokens": 1001,
    "falsePrune": 0,
-   "falseKeep": 293,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -31732,7 +31732,7 @@
    "prunedPairs": 18,
    "prunedTokens": 6608,
    "falsePrune": 0,
-   "falseKeep": 105,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -31895,7 +31895,7 @@
    "prunedPairs": 6,
    "prunedTokens": 8283,
    "falsePrune": 0,
-   "falseKeep": 157,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -33388,7 +33388,7 @@
    "prunedPairs": 25,
    "prunedTokens": 28483,
    "falsePrune": 0,
-   "falseKeep": 175,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -33941,7 +33941,7 @@
    "prunedPairs": 31,
    "prunedTokens": 57451,
    "falsePrune": 0,
-   "falseKeep": 213,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -34566,7 +34566,7 @@
    "prunedPairs": 3,
    "prunedTokens": 255,
    "falsePrune": 0,
-   "falseKeep": 165,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -34771,7 +34771,7 @@
    "prunedPairs": 1,
    "prunedTokens": 46,
    "falsePrune": 0,
-   "falseKeep": 132,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -35100,7 +35100,7 @@
    "prunedPairs": 30,
    "prunedTokens": 193875,
    "falsePrune": 0,
-   "falseKeep": 51,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -35179,7 +35179,7 @@
    "prunedPairs": 41,
    "prunedTokens": 127389,
    "falsePrune": 0,
-   "falseKeep": 2,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -36044,7 +36044,7 @@
    "prunedPairs": 25,
    "prunedTokens": 9022,
    "falsePrune": 0,
-   "falseKeep": 121,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -36238,7 +36238,7 @@
    "prunedPairs": 28,
    "prunedTokens": 7806,
    "falsePrune": 0,
-   "falseKeep": 132,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -36430,7 +36430,7 @@
    "prunedPairs": 6,
    "prunedTokens": 3114,
    "falsePrune": 0,
-   "falseKeep": 203,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -36610,7 +36610,7 @@
    "prunedPairs": 13,
    "prunedTokens": 4026,
    "falsePrune": 0,
-   "falseKeep": 1275,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -39617,7 +39617,7 @@
    "prunedPairs": 26,
    "prunedTokens": 9896,
    "falsePrune": 0,
-   "falseKeep": 130,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -39827,7 +39827,7 @@
    "prunedPairs": 16,
    "prunedTokens": 4297,
    "falsePrune": 0,
-   "falseKeep": 213,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -40008,7 +40008,7 @@
    "prunedPairs": 14,
    "prunedTokens": 5958,
    "falsePrune": 0,
-   "falseKeep": 387,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -40493,7 +40493,7 @@
    "prunedPairs": 7,
    "prunedTokens": 1031,
    "falsePrune": 0,
-   "falseKeep": 146,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -40688,7 +40688,7 @@
    "prunedPairs": 34,
    "prunedTokens": 49201,
    "falsePrune": 0,
-   "falseKeep": 397,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -41371,7 +41371,7 @@
    "prunedPairs": 5,
    "prunedTokens": 1113,
    "falsePrune": 0,
-   "falseKeep": 96,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -41512,7 +41512,7 @@
    "prunedPairs": 26,
    "prunedTokens": 82428,
    "falsePrune": 0,
-   "falseKeep": 568,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -42433,7 +42433,7 @@
    "prunedPairs": 11,
    "prunedTokens": 4220,
    "falsePrune": 0,
-   "falseKeep": 251,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -42766,7 +42766,7 @@
    "prunedPairs": 30,
    "prunedTokens": 119489,
    "falsePrune": 0,
-   "falseKeep": 163,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -43000,7 +43000,7 @@
    "prunedPairs": 5,
    "prunedTokens": 30237,
    "falsePrune": 0,
-   "falseKeep": 138,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -43137,7 +43137,7 @@
    "prunedPairs": 71,
    "prunedTokens": 28733,
    "falsePrune": 0,
-   "falseKeep": 267,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -43374,7 +43374,7 @@
    "prunedPairs": 44,
    "prunedTokens": 542211,
    "falsePrune": 0,
-   "falseKeep": 191,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -43568,7 +43568,7 @@
    "prunedPairs": 30,
    "prunedTokens": 160481,
    "falsePrune": 0,
-   "falseKeep": 130,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -43719,7 +43719,7 @@
    "prunedPairs": 69,
    "prunedTokens": 31248,
    "falsePrune": 0,
-   "falseKeep": 220,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -44140,7 +44140,7 @@
    "proj": "home-alex-.herdr-worktrees-platform-coa-parser",
    "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-platform-coa-parser--/2026-09-17T02-02-25-548Z_01a0ad19-d18c-72ab-b7c1-0c11515de068.jsonl",
    "epochs": 30,
-   "calls": 681,
+   "calls": 685,
    "degradedSkills": true,
    "loadedSkills": [
     "agentmail",
@@ -44162,39 +44162,40 @@
     "tldraw",
     "typesafe-ai"
    ],
-   "namespaceMisses": 7,
+   "namespaceMisses": 8,
    "activeNamespacesEver": [
     "browser",
     "core",
     "headroom",
     "heavy",
-    "pins"
+    "pins",
+    "whatsapp"
    ],
    "baseline": {
-    "textBytes": 786640501,
-    "imageBytes": 146769504,
-    "skillsBytes": 128621151,
-    "toolsBytes": 18429903,
-    "historyBytes": 639589447
+    "textBytes": 794394017,
+    "imageBytes": 148815072,
+    "skillsBytes": 129376635,
+    "toolsBytes": 18538155,
+    "historyBytes": 646479227
    },
    "routed": {
-    "textBytes": 777470544,
-    "imageBytes": 146769504,
-    "skillsBytes": 128621151,
-    "toolsBytes": 9259946,
-    "historyBytes": 639589447
+    "textBytes": 785196484,
+    "imageBytes": 148815072,
+    "skillsBytes": 129376635,
+    "toolsBytes": 9340622,
+    "historyBytes": 646479227
    },
    "pruned": {
-    "textBytes": 775053932,
+    "textBytes": 782673908,
     "imageBytes": 0,
-    "skillsBytes": 128621151,
-    "toolsBytes": 9259946,
-    "historyBytes": 637172835
+    "skillsBytes": 129376635,
+    "toolsBytes": 9340622,
+    "historyBytes": 643956651
    },
    "prunedPairs": 13,
    "prunedTokens": 149979,
    "falsePrune": 0,
-   "falseKeep": 580,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -44667,7 +44668,7 @@
    "prunedPairs": 14,
    "prunedTokens": 6451,
    "falsePrune": 0,
-   "falseKeep": 278,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -45114,7 +45115,7 @@
    "prunedPairs": 22,
    "prunedTokens": 276534,
    "falsePrune": 0,
-   "falseKeep": 322,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -45527,7 +45528,7 @@
    "prunedPairs": 17,
    "prunedTokens": 5999,
    "falsePrune": 0,
-   "falseKeep": 158,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -45700,7 +45701,7 @@
    "prunedPairs": 5,
    "prunedTokens": 2637,
    "falsePrune": 0,
-   "falseKeep": 183,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -50652,7 +50653,7 @@
    "prunedPairs": 22,
    "prunedTokens": 5602,
    "falsePrune": 0,
-   "falseKeep": 148,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -50871,7 +50872,7 @@
    "prunedPairs": 2,
    "prunedTokens": 706,
    "falsePrune": 0,
-   "falseKeep": 77,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -51118,7 +51119,7 @@
    "prunedPairs": 1,
    "prunedTokens": 37,
    "falsePrune": 0,
-   "falseKeep": 122,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -51337,7 +51338,7 @@
    "prunedPairs": 34,
    "prunedTokens": 37215,
    "falsePrune": 0,
-   "falseKeep": 60,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -51460,7 +51461,7 @@
    "prunedPairs": 12,
    "prunedTokens": 6983,
    "falsePrune": 0,
-   "falseKeep": 238,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -51666,7 +51667,7 @@
    "prunedPairs": 46,
    "prunedTokens": 46185,
    "falsePrune": 0,
-   "falseKeep": 79,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -51788,7 +51789,7 @@
    "prunedPairs": 2,
    "prunedTokens": 436,
    "falsePrune": 0,
-   "falseKeep": 237,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -51966,7 +51967,7 @@
    "prunedPairs": 5,
    "prunedTokens": 254,
    "falsePrune": 0,
-   "falseKeep": 47,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -52074,7 +52075,7 @@
    "prunedPairs": 1,
    "prunedTokens": 58,
    "falsePrune": 0,
-   "falseKeep": 102,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -52209,7 +52210,7 @@
    "prunedPairs": 21,
    "prunedTokens": 471745,
    "falsePrune": 0,
-   "falseKeep": 137,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -52501,7 +52502,7 @@
    "prunedPairs": 8,
    "prunedTokens": 1327,
    "falsePrune": 0,
-   "falseKeep": 1021,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -59012,7 +59013,7 @@
    "prunedPairs": 54,
    "prunedTokens": 33394,
    "falsePrune": 0,
-   "falseKeep": 183,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -59315,7 +59316,7 @@
    "prunedPairs": 3,
    "prunedTokens": 1001,
    "falsePrune": 0,
-   "falseKeep": 293,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -59465,7 +59466,7 @@
    "prunedPairs": 10,
    "prunedTokens": 1926,
    "falsePrune": 0,
-   "falseKeep": 90,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",
@@ -59712,7 +59713,7 @@
    "prunedPairs": 1,
    "prunedTokens": 46,
    "falsePrune": 0,
-   "falseKeep": 132,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "namespace-batch",

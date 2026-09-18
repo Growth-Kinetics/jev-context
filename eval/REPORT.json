@@ -22,7 +22,7 @@
   "prunedPairs": 223,
   "prunedTokens": 1810536,
   "falsePrune": 0,
-  "falseKeep": 1349,
+  "falseKeep": 0,
   "namespaceMisses": 41,
   "jevColdTokens": 40201353,
   "jevColdUsd": 1.6884568260000001,
@@ -67,7 +67,7 @@
    "prunedPairs": 38,
    "prunedTokens": 1515056,
    "falsePrune": 0,
-   "falseKeep": 35,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -639,7 +639,7 @@
    "prunedPairs": 5,
    "prunedTokens": 12557,
    "falsePrune": 0,
-   "falseKeep": 38,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -2356,7 +2356,7 @@
    "prunedPairs": 3,
    "prunedTokens": 4703,
    "falsePrune": 0,
-   "falseKeep": 24,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -2665,7 +2665,7 @@
    "prunedPairs": 1,
    "prunedTokens": 58,
    "falsePrune": 0,
-   "falseKeep": 102,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -3490,7 +3490,7 @@
    "prunedPairs": 36,
    "prunedTokens": 57066,
    "falsePrune": 0,
-   "falseKeep": 292,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -5685,7 +5685,7 @@
    "prunedPairs": 9,
    "prunedTokens": 20910,
    "falsePrune": 0,
-   "falseKeep": 158,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -8189,7 +8189,7 @@
    "prunedPairs": 54,
    "prunedTokens": 33394,
    "falsePrune": 0,
-   "falseKeep": 183,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -10718,7 +10718,7 @@
    "prunedPairs": 6,
    "prunedTokens": 8283,
    "falsePrune": 0,
-   "falseKeep": 157,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -12211,7 +12211,7 @@
    "prunedPairs": 25,
    "prunedTokens": 28483,
    "falsePrune": 0,
-   "falseKeep": 175,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -12923,7 +12923,7 @@
    "prunedPairs": 41,
    "prunedTokens": 127389,
    "falsePrune": 0,
-   "falseKeep": 2,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",
@@ -13768,7 +13768,7 @@
    "prunedPairs": 5,
    "prunedTokens": 2637,
    "falsePrune": 0,
-   "falseKeep": 183,
+   "falseKeep": 0,
    "spend": [
     {
      "kind": "skill-load",

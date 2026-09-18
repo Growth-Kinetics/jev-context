@@ -1,7 +1,14 @@
 // Tests: session parsing, epoch segmentation, tool pairing, digest construction.
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
-import { parseSession, segmentEpochs, pairsInSession, buildDigest, parseSessionLines } from "./session.ts";
+import { test } from "node:test";
+import {
+  buildDigest,
+  pairsInSession,
+  parseSession,
+  parseSessionLines,
+  segmentEpochs,
+} from "./session.ts";
 
 const MINI = new URL("../fixtures/mini.jsonl", import.meta.url).pathname;
 
@@ -9,7 +16,10 @@ test("parser skips malformed lines and non-message entries without failing", () 
   const session = parseSession(MINI);
   // 11 valid entries + 1 malformed line; session has 3 user turns
   assert.equal(session.epochs.length, 3);
-  assert.equal(session.entries.filter((e) => e.type === "model_change").length, 1);
+  assert.equal(
+    session.entries.filter((e) => e.type === "model_change").length,
+    1,
+  );
 });
 
 test("epoch segmentation: user turns open epochs, assistant turns count as calls", () => {
@@ -61,7 +71,10 @@ test("digest: cap keeps the newest content and drops the oldest", () => {
     lines.push(
       JSON.stringify({
         type: "message",
-        message: { role: "user", content: [{ type: "text", text: `turn-${i} `.repeat(20) }] },
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `turn-${i} `.repeat(20) }],
+        },
       }),
     );
   }

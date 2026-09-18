@@ -17,7 +17,10 @@ export interface SkillState {
 }
 
 /** which skills enter the active set this turn: >= load threshold, top-K by score */
-export function selectSkills(scores: Record<string, number>, policy: ThresholdPolicy): string[] {
+export function selectSkills(
+  scores: Record<string, number>,
+  policy: ThresholdPolicy,
+): string[] {
   return Object.entries(scores)
     .filter(([name, score]) => name !== "" && score >= policy.load)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -26,11 +29,17 @@ export function selectSkills(scores: Record<string, number>, policy: ThresholdPo
 }
 
 /** true when a decay re-check is due for a skill loaded at `loadedSinceTurn` */
-export function decayDue(loadedSinceTurn: number, currentTurn: number): boolean {
+export function decayDue(
+  loadedSinceTurn: number,
+  currentTurn: number,
+): boolean {
   return currentTurn - loadedSinceTurn >= DECAY_INTERVAL_TURNS;
 }
 
 /** an active skill leaves the set when its re-check score falls below the decay floor */
-export function shouldEvict(recheckScore: number, policy: ThresholdPolicy): boolean {
+export function shouldEvict(
+  recheckScore: number,
+  policy: ThresholdPolicy,
+): boolean {
   return recheckScore < policy.decay;
 }

@@ -2,8 +2,8 @@
 // The extension will own its live catalog scan; the harness replays against this frozen
 // snapshot so reports are byte-deterministic across machines.
 
-import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 export interface ToolSpec {
   bytes: number;
@@ -25,11 +25,17 @@ interface CatalogFixture {
 }
 
 export function loadCatalog(
-  skillCatalogPath = new URL("../fixtures/skill-catalog.json", import.meta.url).pathname,
-  toolSchemasPath = new URL("../fixtures/tool-schemas.json", import.meta.url).pathname,
+  skillCatalogPath = new URL("../fixtures/skill-catalog.json", import.meta.url)
+    .pathname,
+  toolSchemasPath = new URL("../fixtures/tool-schemas.json", import.meta.url)
+    .pathname,
 ): Catalog {
-  const skills = JSON.parse(readFileSync(skillCatalogPath, "utf8")) as CatalogFixture;
-  const tools = JSON.parse(readFileSync(toolSchemasPath, "utf8")) as CatalogFixture;
+  const skills = JSON.parse(
+    readFileSync(skillCatalogPath, "utf8"),
+  ) as CatalogFixture;
+  const tools = JSON.parse(
+    readFileSync(toolSchemasPath, "utf8"),
+  ) as CatalogFixture;
   return {
     skills: skills.skills,
     coreTools: tools.core,
@@ -54,7 +60,10 @@ export function routedNamespaces(catalog: Catalog): string[] {
 
 export function namespaceBytes(ns: string, catalog: Catalog): ToolSpec {
   if (ns === "core") {
-    const bytes = Object.values(catalog.coreTools).reduce((acc, t) => acc + t.bytes, 0);
+    const bytes = Object.values(catalog.coreTools).reduce(
+      (acc, t) => acc + t.bytes,
+      0,
+    );
     return { bytes, estimated: false };
   }
   const tools = catalog.namespaces[ns] ?? [];

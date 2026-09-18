@@ -1,12 +1,13 @@
 // Tests: counterfactual replay arms over the synthetic mini-session, plus determinism of
 // the full pipeline (two runs -> byte-identical reports).
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
-import { parseSession } from "./session.ts";
+import { test } from "node:test";
 import { loadCatalog } from "./catalog.ts";
-import { simulate } from "./simulate.ts";
-import { buildReport, reportJson, reportMarkdown } from "./report.ts";
 import type { ThresholdPolicy } from "./policy.ts";
+import { buildReport, reportJson, reportMarkdown } from "./report.ts";
+import { parseSession } from "./session.ts";
+import { simulate } from "./simulate.ts";
 
 const MINI = new URL("../fixtures/mini.jsonl", import.meta.url).pathname;
 const policy: ThresholdPolicy = { load: 0.6, top_k: 3, decay: 0.25 };
@@ -20,8 +21,16 @@ const MINI_SCORES: Record<string, number> = {
 };
 const scoreOf = (name: string): number => MINI_SCORES[name] ?? 0.1;
 
-async function runMini(overrides?: { skillsAvailable?: boolean; scores?: Record<string, number> }) {
-  const scores = { ...Object.fromEntries(Object.keys(catalog.skills).map((k) => [k, scoreOf(k)])), ...overrides?.scores };
+async function runMini(overrides?: {
+  skillsAvailable?: boolean;
+  scores?: Record<string, number>;
+}) {
+  const scores = {
+    ...Object.fromEntries(
+      Object.keys(catalog.skills).map((k) => [k, scoreOf(k)]),
+    ),
+    ...overrides?.scores,
+  };
   return simulate(parseSession(MINI), {
     proj: "mini",
     catalog,
@@ -35,7 +44,10 @@ test("routed arm injects only the top-3 skills above threshold", async () => {
   const r = await runMini();
   assert.deepEqual(r.loadedSkills, ["browser-use", "heavy-think", "spec"]);
   const allBytes = Object.values(catalog.skills).reduce((a, b) => a + b, 0);
-  const threeBytes = ["spec", "heavy-think", "browser-use"].reduce((a, n) => a + catalog.skills[n], 0);
+  const threeBytes = ["spec", "heavy-think", "browser-use"].reduce(
+    (a, n) => a + catalog.skills[n],
+    0,
+  );
   assert.equal(r.baseline.skillsBytes, allBytes * 3 /* epochs x 1 call */);
   assert.equal(r.routed.skillsBytes, threeBytes * 3);
 });
@@ -62,6 +74,30 @@ test("prune arm removes exactly the non-recurring tool pair at the boundary", as
   // the pruned bytes are exactly the tc2 result message bytes, applied from epoch 2 on (1 call)
   assert.ok(r.prunedTokens > 0);
   assert.equal(r.falsePrune, 0); // recurrence proxy cannot false-prune
+});
+
+test("regression: fixture-mode falseKeep is 0 — kept pairs recurred by definition", async () => {
+  const r = await runMini();
+  // tc1/tc3 are kept because bash recurs; a keep verdict on a recurring tool is not a
+  // missed saving. The old implementation counted every keep verdict (printed 1349 on
+  // the committed golden report); the guarded count must be identically zero here.
+  assert.equal(r.falseKeep, 0);
+});
+
+test("a live verdict that keeps a never-recurring pair counts as falseKeep", async () => {
+  const r = await simulate(parseSession(MINI), {
+    proj: "mini",
+    catalog,
+    policy,
+    scores: async () => ({ spec: 0.9 }),
+    skillsAvailable: true,
+    // live stand-in: keep everything (judgment says "helpful" regardless of recurrence)
+    pruneVerdicts: () => false,
+  });
+  assert.equal(r.prunedPairs, 0);
+  assert.equal(r.falsePrune, 0);
+  // tc2 (tavily, never recurs) was kept by the override -> exactly one missed saving
+  assert.equal(r.falseKeep, 1);
 });
 
 test("last-epoch outputs are never judged (no subsequent turn exists)", async () => {
