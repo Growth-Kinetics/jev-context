@@ -15,15 +15,22 @@
  *   namespace is active; mutations happen at the boundary only, never
  *   mid-epoch (§3.4). Jev failure is fail-static: every configured namespace
  *   becomes visible (Pi default), one notify per error class, ROUTE_DEGRADED
- *   logged (§3.5).
- * Events used: `session_start` (init: config, API key, catalog scan),
+ *   logged (§3.5); a single transient 429 freezes the current set, repeated
+ *   429s fail static. Escape hatch: a tool call answered with Pi's
+ *   synthesized "Tool <name> not found" result (detected on `message_end`)
+ *   force-surfaces the owning namespace at the next boundary
+ *   (TOOL_SURFACE_MISS). Every boundary appends a TOOL_SURFACE record to the
+ *   telemetry JSONL.
+ * Events used: `session_start` (init: config, API key, catalog scan,
+ *   fail-static tool baseline),
  *   `before_agent_start` (digest + both scoring passes + injection rebuild +
  *   tool-set application), `context` (inject into the message copy),
- *   `agent_settled` (close epoch).
+ *   `agent_settled` (close epoch), `message_end` (unknown-tool miss
+ *   detection).
  * State owned: skill catalog cache, active-skill set (name -> score, pinned
  *   flag, turns since load), the per-epoch frozen injection message, namespace
- *   active set, once-per-reason degradation marks, once-per-name config logs,
- *   epoch counters, and the append-only telemetry
+ *   active set, pending namespace misses, once-per-reason degradation marks,
+ *   once-per-name config logs, epoch counters, and the append-only telemetry
  *   JSONL. All session state rebuilds on `session_start` (any reason).
  * Commands: `skill:<name>` per catalog skill (manual load, pinned against
  *   decay — mirrors Pi's native skill-command naming), `skill_stats`.
@@ -55,6 +62,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  MessageEndEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 
@@ -746,7 +754,24 @@ export interface SkillPinnedRecord {
   skill: string;
 }
 
-export type TelemetryEvent = RouteDecisionRecord | SkillPinnedRecord;
+export interface ToolSurfaceRecord {
+  event: "TOOL_SURFACE";
+  ts: number;
+  epoch: number;
+  active: string[];
+  /** Namespaces force-surfaced by the miss-recovery escape hatch. */
+  forced: string[];
+  scores: Record<string, number>;
+  latency_ms: number;
+  input_tokens: number;
+  /** Error class when the epoch ran fail-static instead of scored. */
+  degraded?: string;
+}
+
+export type TelemetryEvent =
+  | RouteDecisionRecord
+  | SkillPinnedRecord
+  | ToolSurfaceRecord;
 
 /** Append one telemetry record as a JSONL line. Loud failure via `log`. */
 export function appendTelemetry(
@@ -811,6 +836,34 @@ function parseTelemetryLine(line: string): TelemetryEvent | null {
       epoch: typeof rec.epoch === "number" ? rec.epoch : 0,
       skill: rec.skill,
     };
+  }
+  if (rec.event === "TOOL_SURFACE") {
+    const scores = asRecord(rec.scores);
+    if (
+      typeof rec.epoch === "number" &&
+      Array.isArray(rec.active) &&
+      Array.isArray(rec.forced) &&
+      scores !== null &&
+      typeof rec.latency_ms === "number" &&
+      typeof rec.input_tokens === "number"
+    ) {
+      const numericScores: Record<string, number> = {};
+      for (const [k, v] of Object.entries(scores)) {
+        if (typeof v === "number") numericScores[k] = v;
+      }
+      return {
+        event: "TOOL_SURFACE",
+        ts: typeof rec.ts === "number" ? rec.ts : 0,
+        epoch: rec.epoch,
+        active: rec.active.filter((v): v is string => typeof v === "string"),
+        forced: rec.forced.filter((v): v is string => typeof v === "string"),
+        scores: numericScores,
+        latency_ms: rec.latency_ms,
+        input_tokens: rec.input_tokens,
+        ...(typeof rec.degraded === "string" ? { degraded: rec.degraded } : {}),
+      };
+    }
+    return null;
   }
   return null;
 }
@@ -1153,11 +1206,25 @@ export interface ToolSurfaceRouterDeps {
   setActiveTools: (names: string[]) => void;
   notify: (message: string, type?: "info" | "warning" | "error") => void;
   log: (line: string) => void;
+  recordTelemetry: (event: TelemetryEvent) => void;
   now: () => number;
 }
 
 export interface ToolSurfaceRouter {
+  /**
+   * Fail-static baseline: every configured namespace visible before the
+   * first boundary routes. No-op on a fresh Pi session (Pi default = all
+   * visible); corrects stale routing after a reload, and IS the fail-static
+   * behavior when the API key is missing (§3.5).
+   */
+  onSessionStart(): void;
   onBeforeAgentStart(input: { digest: string }): Promise<void>;
+  /**
+   * Escape hatch (frozen design): Pi's agent loop answers calls to unknown
+   * tools with a synthesized `Tool <name> not found` error result. Detecting
+   * one here force-surfaces the owning namespace at the next boundary.
+   */
+  onMessageEnd(message: AgentMessage): void;
   /** Namespaces whose tools are currently surfaced on (tests, telemetry). */
   activeNamespaces(): readonly string[];
 }
@@ -1171,8 +1238,12 @@ export function createToolSurfaceRouter(
 ): ToolSurfaceRouter {
   let epoch = 0;
   let active: string[] = [];
+  let consecutive429 = 0;
   const degradedNotified = new Set<string>();
   const unknownLogged = new Set<string>();
+  /** Pending miss recovery: namespace -> tool name that was not found. */
+  const missedNamespaces = new Map<string, string>();
+  const unconfiguredLogged = new Set<string>();
 
   const degrade = (errorClass: string, detail: string): void => {
     deps.log(
@@ -1204,6 +1275,44 @@ export function createToolSurfaceRouter(
   return {
     activeNamespaces: () => active,
 
+    onSessionStart() {
+      if (Object.keys(deps.namespaces).length === 0) return;
+      const { resolved } = resolveNamespaces(
+        deps.namespaces,
+        deps.getAllTools(),
+      );
+      restoreAll(resolved, deps.getActiveTools());
+    },
+
+    onMessageEnd(message) {
+      if (deps.apiKey === null) return; // absent mode: nothing was routed off
+      if (Object.keys(deps.namespaces).length === 0) return;
+      if (message.role !== "toolResult" || !message.isError) return;
+      const text = message.content
+        .filter((p): p is TextContent => p.type === "text")
+        .map((p) => p.text)
+        .join("\n")
+        .trim();
+      // Exact shape of Pi's synthesized unknown-tool result (pi-agent-core
+      // agent-loop.js: createErrorToolResult(`Tool ${name} not found`)).
+      if (text !== `Tool ${message.toolName} not found`) return;
+      const { resolved } = resolveNamespaces(
+        deps.namespaces,
+        deps.getAllTools(),
+      );
+      const hit = resolved.find((ns) => ns.tools.includes(message.toolName));
+      if (hit !== undefined) {
+        missedNamespaces.set(hit.name, message.toolName);
+        return;
+      }
+      // Not ours to recover; one log line helps the owner extend config.
+      if (unconfiguredLogged.has(message.toolName)) return;
+      unconfiguredLogged.add(message.toolName);
+      deps.log(
+        `TOOL_SURFACE_MISS: tool=${message.toolName} namespace=unconfigured`,
+      );
+    },
+
     async onBeforeAgentStart({ digest }) {
       if (deps.apiKey === null) return; // absent mode: behaves as if absent
       if (Object.keys(deps.namespaces).length === 0) return; // no opinions shipped
@@ -1224,6 +1333,25 @@ export function createToolSurfaceRouter(
       }
       if (resolved.length === 0) return; // nothing resolved: no mutation
       const current = [...deps.getActiveTools()];
+      // Miss recovery (M2): namespaces to force-surface this boundary. One
+      // log line per recovered miss, regardless of which path applies it.
+      const forced = new Map(missedNamespaces);
+      missedNamespaces.clear();
+      const forcedApplied: string[] = [];
+      const forcedList = (): { ns: ResolvedNamespace; toolName: string }[] => {
+        const out: { ns: ResolvedNamespace; toolName: string }[] = [];
+        for (const [nsName, toolName] of forced) {
+          const ns = resolved.find((r) => r.name === nsName);
+          if (ns === undefined) continue; // resolved to nothing this epoch
+          deps.log(
+            `TOOL_SURFACE_MISS: namespace=${nsName} tool=${toolName} epoch=${epoch}`,
+          );
+          forcedApplied.push(nsName);
+          out.push({ ns, toolName });
+        }
+        return out;
+      };
+      const started = deps.now();
       const result = await deps.jevNamespaceScore({
         state: digest,
         namespaces: resolved.map((r) => ({
@@ -1231,13 +1359,58 @@ export function createToolSurfaceRouter(
           descriptions: r.descriptions,
         })),
       });
+      const latencyMs = deps.now() - started;
       if (result.scores === null) {
+        const errorClass = result.error ?? "unknown";
+        // A single 429 is transient: freeze the current set (forced misses
+        // still surface — visibility-first), retry next boundary. A REPEATED
+        // 429 fails static like any other outage (frozen design).
+        if (errorClass === "http_429") consecutive429 += 1;
+        if (errorClass === "http_429" && consecutive429 < 2) {
+          deps.log(
+            `ROUTE_DEGRADED: reason=http_429 nozzle=tools action=keep_current epoch=${epoch}`,
+          );
+          const frozen = [...current];
+          for (const f of forcedList()) {
+            for (const t of f.ns.tools) {
+              if (!frozen.includes(t)) frozen.push(t);
+            }
+            if (!active.includes(f.ns.name)) active.push(f.ns.name);
+          }
+          if (!sameNameSet(frozen, current)) deps.setActiveTools(frozen);
+          deps.recordTelemetry({
+            event: "TOOL_SURFACE",
+            ts: deps.now(),
+            epoch,
+            active: [...active],
+            forced: forcedApplied,
+            scores: {},
+            latency_ms: latencyMs,
+            input_tokens: 0,
+            degraded: "http_429",
+          });
+          return;
+        }
         // Whole-request failure: fail-static (§3.5), Pi default visibility.
-        degrade(result.error ?? "unknown", "batch");
+        degrade(errorClass, "batch");
         restoreAll(resolved, current);
         active = resolved.map((r) => r.name);
+        // restoreAll already surfaced every namespace; the log stands.
+        forcedList();
+        deps.recordTelemetry({
+          event: "TOOL_SURFACE",
+          ts: deps.now(),
+          epoch,
+          active: [...active],
+          forced: forcedApplied,
+          scores: {},
+          latency_ms: latencyMs,
+          input_tokens: 0,
+          degraded: errorClass,
+        });
         return;
       }
+      consecutive429 = 0;
       const scores: Record<string, number> = {};
       const visible = new Set<string>();
       const inactiveTools = new Set<string>();
@@ -1265,6 +1438,14 @@ export function createToolSurfaceRouter(
         inactiveTools.delete(core);
         if (available.has(core)) visible.add(core);
       }
+      // Forced namespaces win over a low score for this one boundary.
+      for (const f of forcedList()) {
+        if (!nextActive.includes(f.ns.name)) nextActive.push(f.ns.name);
+        for (const t of f.ns.tools) {
+          visible.add(t);
+          inactiveTools.delete(t);
+        }
+      }
       // A tool in two namespaces stays visible if either namespace is on.
       const hidden = new Set([...inactiveTools].filter((t) => !visible.has(t)));
       const next = current.filter((t) => !hidden.has(t));
@@ -1278,8 +1459,18 @@ export function createToolSurfaceRouter(
           scores,
         )
           .map(([k, v]) => `${k}:${v}`)
-          .join(",")}}`,
+          .join(",")}} forced=[${forcedApplied.join(",")}]`,
       );
+      deps.recordTelemetry({
+        event: "TOOL_SURFACE",
+        ts: deps.now(),
+        epoch,
+        active: [...nextActive],
+        forced: forcedApplied,
+        scores,
+        latency_ms: latencyMs,
+        input_tokens: result.inputTokens,
+      });
     },
   };
 }
@@ -1319,6 +1510,8 @@ export interface JevContextHandlers {
   ): Promise<void>;
   onContext(event: ContextEvent): SkillInjectionResult;
   onAgentSettled(): void;
+  /** Unknown-tool miss detection (Nozzle 2 escape hatch). */
+  onMessageEnd(event: MessageEndEvent): void;
   /** Manual `/skill:<name>` load: active + pinned against decay. */
   manualLoad(name: string): boolean;
   /** Current session's catalog skill names (for command registration). */
@@ -1425,8 +1618,13 @@ export function createJevContextExtension(
             setActiveTools: deps.tools.setActiveTools,
             notify: (message, type) => ctx.ui.notify(message, type),
             log: deps.log,
+            recordTelemetry: (event) =>
+              appendTelemetry(telemetryFile, event, deps.log),
             now: deps.now,
           });
+    // Fail-static baseline: every session (re)starts from Pi-default tool
+    // visibility, key or no key; the first boundary routes from there.
+    toolRouter?.onSessionStart();
     // Per-skill manual-load commands, named after Pi's native skill-command
     // convention (`/skill:<name>`). Registered once per skill name across
     // sessions; the handler always targets the live router.
@@ -1485,6 +1683,9 @@ export function createJevContextExtension(
     onAgentSettled() {
       router?.onAgentSettled();
     },
+    onMessageEnd(event) {
+      toolRouter?.onMessageEnd(event.message);
+    },
     manualLoad(name) {
       return router === null ? false : router.manualLoad(name);
     },
@@ -1517,4 +1718,5 @@ export default function jevContext(pi: ExtensionAPI): void {
   pi.on("before_agent_start", handlers.onBeforeAgentStart);
   pi.on("context", handlers.onContext);
   pi.on("agent_settled", handlers.onAgentSettled);
+  pi.on("message_end", handlers.onMessageEnd);
 }
