@@ -1,7 +1,8 @@
 /**
  * Tests for the jev-context extension (Nozzle 1: spec 2026-09-18-001 M1-M3;
- * Nozzle 2: spec 2026-09-18-002 M1-M2). §5 scenario titles are mirrored
- * verbatim from VERIFYING.md so "scenario exists ⇔ test exists" is diffable.
+ * Nozzle 2: spec 2026-09-18-002 M1-M2; Nozzle 3: spec 2026-09-18-003 M1).
+ * §5 scenario titles are mirrored verbatim from VERIFYING.md so
+ * "scenario exists ⇔ test exists" is diffable.
  * No network: the Jev client is exercised against a loopback fixture server
  * (§4), everything else through the injected JevScoreFn seam. Fakes that must
  * satisfy Pi runtime types use a documented `as unknown as` double cast.
@@ -28,21 +29,30 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import jevContext, {
+  buildPruneJudgeInstructions,
   buildSessionDigest,
   buildSkillInjection,
   CORE_TOOLS,
+  captureEpochPairs,
+  createEpochPruner,
   createJevContextExtension,
   createJevNamespaceScorer,
+  createJevPruneJudge,
   createJevScorer,
   createSkillRouter,
   createToolSurfaceRouter,
   type DigestEntry,
   defaultSkillRoots,
+  type EpochPrunerDeps,
   type JevNamespaceScoreFn,
+  type JevPruneJudgeFn,
   type JevScoreFn,
   type JevScoreRequest,
   loadConfig,
   type NamespaceScoreRequest,
+  type PruneJudgeRequest,
+  pruneQuestionKey,
+  renderPruneState,
   renderSkillStats,
   resolveApiKey,
   type SkillEntry,
@@ -412,7 +422,7 @@ test("session_start builds the router once; later turns reuse it (no re-init, no
   handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
   await handlers.onBeforeAgentStart(turn("one"), ctx);
   assert.equal(scorerCalls, 1); // catalog scan found demo; scored once
-  handlers.onAgentSettled();
+  await handlers.onAgentSettled({ type: "agent_settled" }, ctx);
   await handlers.onBeforeAgentStart(turn("two"), ctx);
   assert.equal(scorerCalls, 1); // active skill not re-scored, router not rebuilt
   const injected = injectedOf(
@@ -1710,4 +1720,477 @@ test("wiring detects the miss on message_end, force-surfaces at the next boundar
   assert.equal(surfaces[0].ts, 1000);
   assert.deepEqual(surfaces[1].active, ["browser"]);
   assert.deepEqual(surfaces[1].forced, ["browser"]);
+});
+
+// ============================ Nozzle 3 — epoch capture + verdict cache (M1)
+
+// ------------------------------------------------------------- helpers
+
+function toolCallPart(
+  id: string,
+  name: string,
+  args: Record<string, unknown>,
+): ToolCall {
+  return { type: "toolCall", id, name, arguments: args };
+}
+
+function toolResultMessage(
+  callId: string,
+  toolName: string,
+  text: string,
+): AgentMessage {
+  return {
+    role: "toolResult",
+    toolCallId: callId,
+    toolName,
+    content: [{ type: "text", text }],
+    isError: false,
+    timestamp: 1,
+  };
+}
+
+/** Branch entries for one settled epoch: a prior turn, the user anchor that
+ *  opens the judged epoch, two complete pairs, and the closing text. */
+function epochEntries(): DigestEntry[] {
+  return [
+    messageEntry(userMessage("earlier question")),
+    messageEntry(
+      assistantMessage([toolCallPart("tc-old", "bash", { command: "old" })]),
+    ),
+    messageEntry(toolResultMessage("tc-old", "bash", "OLD-OUTPUT")),
+    messageEntry(userMessage("find the config and read it")),
+    messageEntry(
+      assistantMessage([
+        { type: "thinking", thinking: "THINKING-TRACE" },
+        toolCallPart("tc-1", "grep", { pattern: "port" }),
+        toolCallPart("tc-2", "read", { path: "/etc/app.conf" }),
+      ]),
+    ),
+    messageEntry(toolResultMessage("tc-1", "grep", "GREP-HITS")),
+    messageEntry(toolResultMessage("tc-2", "read", "CONFIG-BODY")),
+    messageEntry(
+      assistantMessage([{ type: "text", text: "The port is 8080." }]),
+    ),
+  ];
+}
+
+function fakePruneJudge(scores: Record<string, number>): JevPruneJudgeFn {
+  return async (req) => ({
+    scores: Object.fromEntries(
+      req.pairs.map((p) => [p.id, scores[p.id] ?? 0.5]),
+    ),
+    inputTokens: 25,
+    latencyMs: 1,
+  });
+}
+
+function makePruner(
+  jevPruneJudge: JevPruneJudgeFn,
+  extra: Partial<EpochPrunerDeps> = {},
+) {
+  const logs: string[] = [];
+  const notifies: { message: string; type: string | undefined }[] = [];
+  const telemetry: TelemetryEvent[] = [];
+  const pruner = createEpochPruner({
+    apiKey: "test-key",
+    jevPruneJudge,
+    stateCapBytes: 60_000,
+    pruneThreshold: 0.2,
+    notify: (message, type) => notifies.push({ message, type }),
+    log: (line) => logs.push(line),
+    recordTelemetry: (event) => telemetry.push(event),
+    now: () => 1000,
+    ...extra,
+  });
+  return { pruner, logs, notifies, telemetry };
+}
+
+// ------------------------------------------------------------- §5 scenarios
+
+test('Given a closed agent epoch, when `agent_settled` fires, then each tool call/result pair of that epoch is judged once ("helpful to subsequent turns?"), verdicts cached by message id', async () => {
+  const requests: PruneJudgeRequest[] = [];
+  const judge: JevPruneJudgeFn = async (req) => {
+    requests.push(req);
+    return fakePruneJudge({ "tc-1": 0.9, "tc-2": 0.1 })(req);
+  };
+  const { pruner, logs, telemetry } = makePruner(judge);
+  await pruner.onAgentSettled(epochEntries());
+  // ONE batched request for the epoch, one question per pair of the epoch.
+  assert.equal(requests.length, 1);
+  assert.deepEqual(
+    requests[0].pairs.map((p) => p.id),
+    ["tc-1", "tc-2"],
+  );
+  // The prior epoch's pair is not judged.
+  assert.ok(!requests[0].pairs.some((p) => p.id === "tc-old"));
+  // State = the epoch: user message, assistant text, thinking, tool call
+  // names/args, and the outputs under judgment — but not the prior epoch.
+  const state = requests[0].state;
+  assert.ok(state.includes("[user] find the config and read it"));
+  assert.ok(state.includes("[assistant thinking] THINKING-TRACE"));
+  assert.ok(state.includes('[tool_call #1 grep] {"pattern":"port"}'));
+  assert.ok(state.includes("[tool_result #1 grep] GREP-HITS"));
+  assert.ok(state.includes("[tool_result #2 read] CONFIG-BODY"));
+  assert.ok(state.includes("[assistant] The port is 8080."));
+  assert.ok(!state.includes("OLD-OUTPUT"));
+  assert.ok(!state.includes("earlier question"));
+  // Verdicts cached by the pair's message id (toolCall id), score intact.
+  assert.equal(pruner.verdict("tc-1")?.score, 0.9);
+  assert.equal(pruner.verdict("tc-2")?.score, 0.1);
+  assert.equal(pruner.verdict("tc-old"), undefined);
+  assert.equal(pruner.verdicts().size, 2);
+  assert.ok(logs.some((l) => l.startsWith("PRUNE_JUDGED: epoch=1 judged=2")));
+  assert.deepEqual(
+    telemetry.map((e) => e.event),
+    ["PRUNE_JUDGED"],
+  );
+});
+
+test("Given a message judged in a prior epoch, then it is never re-judged", async () => {
+  const requests: PruneJudgeRequest[] = [];
+  const judge: JevPruneJudgeFn = async (req) => {
+    requests.push(req);
+    return fakePruneJudge({ "tc-1": 0.9, "tc-2": 0.1, "tc-3": 0.4 })(req);
+  };
+  const { pruner } = makePruner(judge);
+  const entries = epochEntries();
+  await pruner.onAgentSettled(entries);
+  // The same window settled again: everything cached, no new request.
+  await pruner.onAgentSettled(entries);
+  assert.equal(requests.length, 1);
+  // A new epoch judges only the new pair; tc-1/tc-2 stay cached.
+  const grown = [
+    ...entries,
+    messageEntry(userMessage("now lint it")),
+    messageEntry(
+      assistantMessage([
+        toolCallPart("tc-3", "bash", { command: "npm run check" }),
+      ]),
+    ),
+    messageEntry(toolResultMessage("tc-3", "bash", "CHECK-OK")),
+  ];
+  await pruner.onAgentSettled(grown);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(
+    requests[1].pairs.map((p) => p.id),
+    ["tc-3"],
+  );
+  // The state still shows the whole current epoch for context.
+  assert.ok(requests[1].state.includes("[user] now lint it"));
+  assert.equal(pruner.verdicts().size, 3);
+});
+
+// ------------------------------------------------------------- capture/render
+
+test("epoch capture: no user message means no epoch; orphan results and unpaired calls are never judgment units", () => {
+  assert.equal(
+    captureEpochPairs([
+      messageEntry(assistantMessage([{ type: "text", text: "hi" }])),
+    ]),
+    null,
+  );
+  const captured = captureEpochPairs([
+    messageEntry(userMessage("go")),
+    messageEntry(assistantMessage([toolCallPart("tc-open", "bash", {})])),
+    messageEntry(toolResultMessage("tc-orphan", "read", "ORPHAN")),
+  ]);
+  assert.ok(captured !== null);
+  assert.deepEqual(captured.pairs, []);
+  // The unpaired call still renders as conversation context for the state.
+  assert.ok(
+    captured.segments.some((s) => s.kind === "call" && s.id === "tc-open"),
+  );
+});
+
+test("oversized excerpt rule: an output too large for the state budget is judged on head+tail with the omission marked; smaller outputs stay whole", () => {
+  const bigOutput = `${"A".repeat(100)}${"M".repeat(3600)}${"Z".repeat(100)}`;
+  const captured = captureEpochPairs([
+    messageEntry(userMessage("u")),
+    messageEntry(
+      assistantMessage([
+        toolCallPart("tc-big", "bash", {}),
+        toolCallPart("tc-small", "read", {}),
+      ]),
+    ),
+    messageEntry(toolResultMessage("tc-big", "bash", bigOutput)),
+    messageEntry(toolResultMessage("tc-small", "read", "SMALL-OK")),
+  ]);
+  assert.ok(captured !== null);
+  const rendered = renderPruneState(captured, 4000);
+  assert.ok(Buffer.byteLength(rendered.state, "utf8") <= 4000);
+  const big = rendered.pairs.find((p) => p.id === "tc-big");
+  const small = rendered.pairs.find((p) => p.id === "tc-small");
+  assert.equal(big?.excerpted, true);
+  assert.equal(small?.excerpted, false);
+  assert.ok(rendered.state.includes("A".repeat(100))); // head intact
+  assert.ok(rendered.state.includes("Z".repeat(100))); // tail intact
+  assert.ok(!rendered.state.includes("M".repeat(3600))); // middle omitted
+  assert.ok(rendered.state.includes("bytes omitted"));
+  assert.ok(rendered.state.includes("[tool_result #2 read] SMALL-OK"));
+});
+
+// ------------------------------------------------------------- client
+
+test("batched prune client POSTs one request with one noul per pair and parses per-pair scores", async (t) => {
+  const captured: { auth?: string; body?: string } = {};
+  const server = createServer((req, res) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+    });
+    req.on("end", () => {
+      captured.auth = req.headers.authorization;
+      captured.body = data;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          answers: {
+            pair_tc1: { noul: 0.05 },
+            pair_tc2: { noul: 0.91 },
+          },
+          usage: { input_tokens: 777 },
+        }),
+      );
+    });
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address === "object");
+  const judge = createJevPruneJudge({
+    endpoint: `http://127.0.0.1:${address.port}/v1/systemone`,
+    model: "jev-latest",
+    apiKey: "test-key",
+    timeoutMs: 5000,
+  });
+  const result = await judge({
+    state: "EPOCH-STATE",
+    pairs: [
+      { id: "tc1", toolName: "bash", ordinal: 1, excerpted: false },
+      { id: "tc2", toolName: "read", ordinal: 2, excerpted: true },
+    ],
+  });
+  assert.deepEqual(result.scores, { tc1: 0.05, tc2: 0.91 });
+  assert.equal(result.inputTokens, 777);
+  assert.equal(captured.auth, "Bearer test-key");
+  assert.ok(captured.body !== undefined);
+  const payload = asRec(JSON.parse(captured.body));
+  assert.equal(payload.state, "EPOCH-STATE");
+  assert.deepEqual(Object.keys(asRec(payload.questions)).sort(), [
+    "pair_tc1",
+    "pair_tc2",
+  ]);
+  const q1 = asRec(asRec(payload.questions).pair_tc1);
+  assert.equal(q1.type, "noul");
+  const i1 = q1.instructions;
+  assert.ok(typeof i1 === "string");
+  assert.ok(i1.includes("#1 ('bash')"));
+  assert.ok(i1.includes("is this tool output helpful to subsequent turns?"));
+  assert.ok(!i1.includes("head and tail")); // full output: no excerpt note
+  const i2 = asRec(asRec(payload.questions).pair_tc2).instructions;
+  assert.ok(typeof i2 === "string" && i2.includes("head and tail"));
+  assert.ok(typeof asRec(q1.criteria).true === "string");
+  assert.ok(pruneQuestionKey("tc1") === "pair_tc1");
+  assert.ok(
+    buildPruneJudgeInstructions({
+      id: "x",
+      toolName: "edit",
+      ordinal: 3,
+      excerpted: false,
+    }).includes("#3 ('edit')"),
+  );
+});
+
+test("batched prune client maps HTTP errors, malformed bodies, and timeouts to scores=null results", async (t) => {
+  const server = createServer((req, res) => {
+    if (req.url === "/hang") return; // never respond
+    if (req.url === "/e500") {
+      res.writeHead(500);
+      res.end("boom");
+      return;
+    }
+    if (req.url === "/partial") {
+      // One pair's answer missing: per-pair null, not whole-failure.
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ answers: { pair_a: { noul: 0.3 } } }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end("this is not json");
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  const req: PruneJudgeRequest = {
+    state: "",
+    pairs: [
+      { id: "a", toolName: "bash", ordinal: 1, excerpted: false },
+      { id: "b", toolName: "read", ordinal: 2, excerpted: false },
+    ],
+  };
+  const judgeFor = (path: string, timeoutMs = 5000) =>
+    createJevPruneJudge({
+      endpoint: `${base}${path}`,
+      model: "m",
+      apiKey: "k",
+      timeoutMs,
+    });
+  const r500 = await judgeFor("/e500")(req);
+  assert.equal(r500.scores, null);
+  assert.equal(r500.error, "http_500");
+  const rBad = await judgeFor("/bad")(req);
+  assert.equal(rBad.scores, null);
+  assert.equal(rBad.error, "bad_response");
+  const rTimeout = await judgeFor("/hang", 50)(req);
+  assert.equal(rTimeout.scores, null);
+  assert.equal(rTimeout.error, "timeout");
+  const rPartial = await judgeFor("/partial")(req);
+  assert.deepEqual(rPartial.scores, { a: 0.3, b: null });
+});
+
+// ------------------------------------------------------------- degradation
+
+test("a failed judgment caches nothing, logs ROUTE_DEGRADED, notifies once per error class, and prunes nothing (fail-static)", async () => {
+  const judge: JevPruneJudgeFn = async () => ({
+    scores: null,
+    inputTokens: 0,
+    latencyMs: 1,
+    error: "unreachable",
+  });
+  const { pruner, logs, notifies, telemetry } = makePruner(judge);
+  await pruner.onAgentSettled(epochEntries());
+  assert.equal(pruner.verdicts().size, 0);
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith("ROUTE_DEGRADED: reason=unreachable nozzle=prune"),
+    ),
+  );
+  assert.equal(notifies.length, 1);
+  assert.equal(telemetry.length, 0);
+  // Second failure: logged again, still one notify for the class.
+  await pruner.onAgentSettled(epochEntries());
+  assert.equal(
+    logs.filter((l) =>
+      l.startsWith("ROUTE_DEGRADED: reason=unreachable nozzle=prune"),
+    ).length,
+    2,
+  );
+  assert.equal(notifies.length, 1);
+});
+
+test("pairs whose judgment failed stay eligible: the next settle retries them", async () => {
+  let down = true;
+  const judge: JevPruneJudgeFn = async (req) =>
+    down
+      ? { scores: null, inputTokens: 0, latencyMs: 1, error: "unreachable" }
+      : fakePruneJudge({ "tc-1": 0.8, "tc-2": 0.6 })(req);
+  const { pruner } = makePruner(judge);
+  await pruner.onAgentSettled(epochEntries());
+  assert.equal(pruner.verdicts().size, 0);
+  down = false;
+  await pruner.onAgentSettled(epochEntries());
+  assert.equal(pruner.verdicts().size, 2);
+});
+
+test("absent API key: agent_settled judges nothing and logs nothing (absent mode)", async () => {
+  let calls = 0;
+  const judge: JevPruneJudgeFn = async (req) => {
+    calls++;
+    return fakePruneJudge({})(req);
+  };
+  const { pruner, logs } = makePruner(judge, { apiKey: null });
+  await pruner.onAgentSettled(epochEntries());
+  assert.equal(calls, 0);
+  assert.equal(pruner.verdicts().size, 0);
+  assert.deepEqual(logs, []);
+});
+
+test("pending() exposes the in-flight judge pass and clears when it settles", async () => {
+  const { pruner } = makePruner(fakePruneJudge({ "tc-1": 0.5, "tc-2": 0.5 }));
+  assert.equal(pruner.pending(), null);
+  const run = pruner.onAgentSettled(epochEntries());
+  assert.ok(pruner.pending() !== null);
+  await run;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pruner.pending(), null);
+});
+
+// ------------------------------------------------------- config and wiring
+
+test("config parses pruneThreshold and pruneStateCapBytes; defaults hold without them", () => {
+  const home = makeTmpDir();
+  writeFileSync(
+    join(home, "jev-context.json"),
+    JSON.stringify({ pruneThreshold: 0.15, pruneStateCapBytes: 12_345 }),
+  );
+  const custom = loadConfig({
+    userConfigPath: join(home, "jev-context.json"),
+    projectConfigPath: join(makeTmpDir(), "nope.json"),
+    homeDir: home,
+    cwd: makeTmpDir(),
+  });
+  assert.equal(custom.config.pruneThreshold, 0.15);
+  assert.equal(custom.config.pruneStateCapBytes, 12_345);
+  const defaults = loadConfig({
+    userConfigPath: join(makeTmpDir(), "nope.json"),
+    projectConfigPath: join(makeTmpDir(), "nope.json"),
+    homeDir: makeTmpDir(),
+    cwd: makeTmpDir(),
+  });
+  assert.equal(defaults.config.pruneThreshold, 0.2);
+  assert.equal(defaults.config.pruneStateCapBytes, 60_000);
+});
+
+test("wiring: agent_settled captures the session branch, judges its pairs once, and appends PRUNE_JUDGED telemetry", async () => {
+  const home = makeTmpDir();
+  const judges: PruneJudgeRequest[] = [];
+  const handlers = createJevContextExtension({
+    homeDir: home,
+    env: { PI_TYPESAFE_JEV: "test-key" },
+    now: () => 1000,
+    log: () => {},
+    jevScore: async () => ({ score: 0.1, inputTokens: 1, latencyMs: 1 }),
+    jevPruneJudge: async (req) => {
+      judges.push(req);
+      return {
+        scores: Object.fromEntries(req.pairs.map((p) => [p.id, 0.1])),
+        inputTokens: 9,
+        latencyMs: 1,
+      };
+    },
+  });
+  const ctx = {
+    cwd: makeTmpDir(),
+    ui: { notify: () => {} },
+    sessionManager: { getBranch: () => epochEntries() },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  await handlers.onAgentSettled({ type: "agent_settled" }, ctx);
+  assert.equal(judges.length, 1);
+  assert.deepEqual(
+    judges[0].pairs.map((p) => p.id),
+    ["tc-1", "tc-2"],
+  );
+  // PRUNE_JUDGED appended to the telemetry JSONL.
+  const file = join(home, ".pi", "agent", "jev-context-telemetry.jsonl");
+  const records = readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => asRec(JSON.parse(l)));
+  const judged = records.filter((r) => r.event === "PRUNE_JUDGED");
+  assert.equal(judged.length, 1);
+  assert.equal(judged[0].judged, 2);
+  assert.deepEqual(judged[0].scores, { "#1": 0.1, "#2": 0.1 });
+  assert.equal(judged[0].input_tokens, 9);
+  assert.equal(judged[0].ts, 1000);
+  // renderSkillStats tolerates the new record type.
+  assert.ok(renderSkillStats(file).includes("route decisions: 0"));
 });

@@ -21,15 +21,32 @@
  *   force-surfaces the owning namespace at the next boundary
  *   (TOOL_SURFACE_MISS). Every boundary appends a TOOL_SURFACE record to the
  *   telemetry JSONL.
+ * Nozzle 3 — epoch pruning: at `agent_settled` the closed epoch (branch
+ *   entries since the last user message) is captured and every complete
+ *   tool call/result pair in it is judged in ONE batched Jev request —
+ *   state = the epoch (user message, assistant text/thinking, tool call
+ *   names/args, and the outputs under judgment; oversized outputs are
+ *   head+tail excerpted, which is input preparation, not a helpfulness
+ *   rule), one noul per pair ("Given how this turn concluded, is this tool
+ *   output helpful to subsequent turns?"). Verdicts are cached by the
+ *   pair's toolCall id — the only message id present in both the session
+ *   entries and the context-event copy — and judged once ever, never
+ *   mid-loop. Code owns mechanics only; every helpfulness decision is
+ *   Jev's (owner's ruling). Application of prune verdicts to the context
+ *   copy is milestone M2; M1 ends at the verdict cache. Fail-static:
+ *   judge failures log ROUTE_DEGRADED, notify once per error class, and
+ *   cache nothing (zero pruning = Pi native). Every judged epoch appends
+ *   a PRUNE_JUDGED record to the telemetry JSONL.
  * Events used: `session_start` (init: config, API key, catalog scan,
  *   fail-static tool baseline),
  *   `before_agent_start` (digest + both scoring passes + injection rebuild +
  *   tool-set application), `context` (inject into the message copy),
- *   `agent_settled` (close epoch), `message_end` (unknown-tool miss
- *   detection).
+ *   `agent_settled` (close epoch + Nozzle-3 epoch judgment), `message_end`
+ *   (unknown-tool miss detection).
  * State owned: skill catalog cache, active-skill set (name -> score, pinned
  *   flag, turns since load), the per-epoch frozen injection message, namespace
- *   active set, pending namespace misses, once-per-reason degradation marks,
+ *   active set, pending namespace misses, the prune verdict cache (toolCall
+ *   id -> verdict), once-per-reason degradation marks,
  *   once-per-name config logs, epoch counters, and the append-only telemetry
  *   JSONL. All session state rebuilds on `session_start` (any reason).
  * Commands: `skill:<name>` per catalog skill (manual load, pinned against
@@ -40,6 +57,9 @@
  *   `toolNamespaces` maps namespace -> { tools, prefix } (owner rules, §3.8 —
  *   the extension ships no bundle opinions); `coreTools` extends the
  *   hardcoded core floor; `toolSurfaceThreshold` gates namespaces.
+ *   `pruneStateCapBytes` bounds the batched judgment state;
+ *   `pruneThreshold` is the helpfulness score at or below which a pair is
+ *   pruned (M2 application).
  * Invariants (VERIFYING.md): the on-disk transcript is never written (§3.3);
  *   injection is byte-stable within an epoch (§3.4); degradation is loud —
  *   notify once per reason, log ROUTE_DEGRADED, keep the current set (§3.5);
@@ -57,6 +77,7 @@ import type {
   UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
+  AgentSettledEvent,
   BeforeAgentStartEvent,
   ContextEvent,
   ExtensionAPI,
@@ -108,6 +129,8 @@ export interface JevContextConfig {
   toolNamespaces: Record<string, ToolNamespaceConfig>;
   toolSurfaceThreshold: number;
   coreTools: string[];
+  pruneThreshold: number;
+  pruneStateCapBytes: number;
 }
 
 export function defaultSkillRoots(homeDir: string, cwd: string): string[] {
@@ -126,6 +149,12 @@ export function defaultTelemetryFile(homeDir: string): string {
 /** Fallback before any config load; defaultConfig is the single source. */
 export const DEFAULT_DIGEST_CAP_BYTES = 80_000;
 
+/** Judgment-state budget: safely under the measured 32k-token state wall. */
+export const DEFAULT_PRUNE_STATE_CAP_BYTES = 60_000;
+
+/** Frozen design: prune at >= 0.8 confidence of "not helpful" (score <= 0.2). */
+export const DEFAULT_PRUNE_THRESHOLD = 0.2;
+
 export function defaultConfig(homeDir: string, cwd: string): JevContextConfig {
   return {
     endpoint: "https://api.typesafe.ai/v1/systemone",
@@ -143,6 +172,8 @@ export function defaultConfig(homeDir: string, cwd: string): JevContextConfig {
     toolNamespaces: {},
     toolSurfaceThreshold: 0.6,
     coreTools: [...CORE_TOOLS],
+    pruneThreshold: DEFAULT_PRUNE_THRESHOLD,
+    pruneStateCapBytes: DEFAULT_PRUNE_STATE_CAP_BYTES,
   };
 }
 
@@ -222,6 +253,12 @@ function pickConfigFields(
   }
   if (typeof r.toolSurfaceThreshold === "number") {
     out.toolSurfaceThreshold = r.toolSurfaceThreshold;
+  }
+  if (typeof r.pruneThreshold === "number") {
+    out.pruneThreshold = r.pruneThreshold;
+  }
+  if (typeof r.pruneStateCapBytes === "number") {
+    out.pruneStateCapBytes = r.pruneStateCapBytes;
   }
   if (
     Array.isArray(r.coreTools) &&
@@ -649,6 +686,139 @@ export function createJevNamespaceScorer(options: {
 }
 
 // --------------------------------------------------------------------------
+// Batched prune client (Nozzle 3): ONE Jev request per closed epoch carrying
+// one noul per tool call/result pair under judgment. State = the whole epoch
+// (user message, assistant text/thinking, tool call names/args, and the
+// outputs under judgment — oversized outputs head+tail excerpted upstream,
+// which is input preparation, not a helpfulness rule). Question shape from
+// the frozen design: "Given how this turn concluded, is this tool output
+// helpful to subsequent turns?" Same injectable-seam rule (§4): tests
+// substitute the function or point the real judge at a fixture server.
+// --------------------------------------------------------------------------
+
+export interface PrunePairPayload {
+  /** toolCall id of the pair — question key and verdict-cache key. */
+  id: string;
+  toolName: string;
+  /** 1-based position of the pair's call within the epoch. */
+  ordinal: number;
+  /** True when the state shows a head+tail excerpt of this output. */
+  excerpted: boolean;
+}
+
+export interface PruneJudgeRequest {
+  state: string;
+  pairs: readonly PrunePairPayload[];
+}
+
+export interface PruneJudgeResult {
+  /** Per-pair helpfulness score; null entry = unparseable answer for that
+   *  pair. Null map = whole-request failure (see `error`). */
+  scores: Record<string, number | null> | null;
+  inputTokens: number;
+  latencyMs: number;
+  error?: string;
+}
+
+export type JevPruneJudgeFn = (
+  request: PruneJudgeRequest,
+) => Promise<PruneJudgeResult>;
+
+/** Question key prefix; pair ids come from provider tool calls. */
+export function pruneQuestionKey(pairId: string): string {
+  return `pair_${pairId}`;
+}
+
+const PRUNE_CRITERIA = {
+  true: "The output carries information that subsequent turns in this conversation need",
+  false:
+    "The output is dead weight: subsequent turns do not need anything in it",
+} as const;
+
+export function buildPruneJudgeInstructions(pair: PrunePairPayload): string {
+  const question = `Tool call #${pair.ordinal} ('${pair.toolName}') in the conversation state produced the output under judgment. Given how this turn concluded, is this tool output helpful to subsequent turns?`;
+  return pair.excerpted
+    ? `${question} The output was too large for the state budget: only its head and tail are shown, with the omitted middle marked.`
+    : question;
+}
+
+export function createJevPruneJudge(options: {
+  endpoint: string;
+  model: string;
+  apiKey: string;
+  timeoutMs: number;
+}): JevPruneJudgeFn {
+  return async (request) => {
+    const started = Date.now();
+    const questions: Record<string, unknown> = {};
+    for (const pair of request.pairs) {
+      questions[pruneQuestionKey(pair.id)] = {
+        type: "noul",
+        instructions: buildPruneJudgeInstructions(pair),
+        criteria: PRUNE_CRITERIA,
+      };
+    }
+    let response: Response;
+    try {
+      response = await fetch(options.endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          state: request.state,
+          model: options.model,
+          questions,
+        }),
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.name === "TimeoutError"
+          ? "timeout"
+          : "unreachable";
+      return {
+        scores: null,
+        inputTokens: 0,
+        latencyMs: Date.now() - started,
+        error: reason,
+      };
+    }
+    const latencyMs = Date.now() - started;
+    if (!response.ok) {
+      return {
+        scores: null,
+        inputTokens: 0,
+        latencyMs,
+        error: `http_${response.status}`,
+      };
+    }
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      return { scores: null, inputTokens: 0, latencyMs, error: "bad_response" };
+    }
+    const root = asRecord(data);
+    const answers = asRecord(root?.answers);
+    if (answers === null) {
+      return { scores: null, inputTokens: 0, latencyMs, error: "bad_response" };
+    }
+    const usage = asRecord(root?.usage);
+    const inputTokens =
+      typeof usage?.input_tokens === "number" ? usage.input_tokens : 0;
+    const scores: Record<string, number | null> = {};
+    for (const pair of request.pairs) {
+      const noul = asRecord(answers[pruneQuestionKey(pair.id)])?.noul;
+      scores[pair.id] =
+        typeof noul === "number" && !Number.isNaN(noul) ? noul : null;
+    }
+    return { scores, inputTokens, latencyMs };
+  };
+}
+
+// --------------------------------------------------------------------------
 // Policy: threshold + top-K, deterministic tie-break (score desc, name asc).
 // --------------------------------------------------------------------------
 
@@ -730,6 +900,248 @@ export function resolveNamespaces(
 }
 
 // --------------------------------------------------------------------------
+// Epoch capture + judgment-state render (Nozzle 3): the closed epoch is the
+// slice of branch entries after the last user message entry. Judgment units
+// are the COMPLETE tool call/result pairs inside that slice (hindsight: the
+// outcome is visible); a call without its result, or a result whose call
+// lies outside the slice, is never judged. The pair's toolCall id is the
+// message id that survives into the context-event message copy —
+// AgentMessage carries no entry id — so verdicts are keyed by it. Rendering
+// is pure input preparation: fixed conversation lines first, then each
+// output within an equal share of the remaining byte budget, oversized
+// outputs as head+tail excerpts with the omission marked.
+// --------------------------------------------------------------------------
+
+export interface EpochPair {
+  /** toolCall id — the verdict-cache key ("message id" of the pair). */
+  id: string;
+  toolName: string;
+  /** 1-based position of the pair's call within the epoch. */
+  ordinal: number;
+  /** Full text of the tool result (text parts joined). */
+  output: string;
+  outputBytes: number;
+}
+
+/** Chronological epoch content: rendered text lines and tool calls. */
+export type EpochSegment =
+  | { kind: "text"; line: string }
+  | {
+      kind: "call";
+      id: string;
+      ordinal: number;
+      toolName: string;
+      args: string;
+    };
+
+export interface CapturedEpoch {
+  /** Text of the user message that opened the epoch. */
+  userText: string;
+  segments: EpochSegment[];
+  /** Complete call/result pairs of the epoch, in call order. */
+  pairs: EpochPair[];
+}
+
+export function captureEpochPairs(
+  entries: readonly DigestEntry[],
+): CapturedEpoch | null {
+  let anchor = -1;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const message = entries[i].message;
+    if (entries[i].type === "message" && message?.role === "user") {
+      anchor = i;
+      break;
+    }
+  }
+  if (anchor === -1) return null;
+  const anchorMessage = entries[anchor].message;
+  const userText =
+    anchorMessage === undefined
+      ? ""
+      : digestChunksOf(anchorMessage)
+          .map((c) => c.text)
+          .join("\n");
+  const segments: EpochSegment[] = [];
+  if (userText) segments.push({ kind: "text", line: `[user] ${userText}\n` });
+  const pairs: EpochPair[] = [];
+  const open = new Map<string, EpochPair>();
+  let calls = 0;
+  for (let i = anchor + 1; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.type !== "message" || entry.message === undefined) continue;
+    const message = entry.message;
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type === "text") {
+          if (part.text) {
+            segments.push({
+              kind: "text",
+              line: `[assistant] ${part.text}\n`,
+            });
+          }
+        } else if (part.type === "thinking") {
+          if (part.thinking) {
+            segments.push({
+              kind: "text",
+              line: `[assistant thinking] ${part.thinking}\n`,
+            });
+          }
+        } else if (part.type === "toolCall") {
+          calls += 1;
+          segments.push({
+            kind: "call",
+            id: part.id,
+            ordinal: calls,
+            toolName: part.name,
+            args: JSON.stringify(part.arguments),
+          });
+          open.set(part.id, {
+            id: part.id,
+            toolName: part.name,
+            ordinal: calls,
+            output: "",
+            outputBytes: 0,
+          });
+        }
+      }
+    } else if (message.role === "toolResult") {
+      const pair = open.get(message.toolCallId);
+      if (pair === undefined) continue; // call outside the slice: not ours
+      const output = message.content
+        .filter((p): p is TextContent => p.type === "text")
+        .map((p) => p.text)
+        .join("\n");
+      pair.output = output;
+      pair.outputBytes = Buffer.byteLength(output, "utf8");
+      pairs.push(pair);
+      open.delete(message.toolCallId);
+    }
+  }
+  pairs.sort((a, b) => a.ordinal - b.ordinal);
+  return { userText, segments, pairs };
+}
+
+/** Floor per-output excerpt budget; wins over the cap in degenerate configs
+ *  (input preparation only — never a prune decision). */
+const MIN_OUTPUT_EXCERPT_BYTES = 1024;
+
+function headUtf8(text: string, maxBytes: number): string {
+  const buf = Buffer.from(text, "utf8");
+  if (buf.length <= maxBytes) return text;
+  let end = maxBytes;
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1;
+  return buf.subarray(0, end).toString("utf8");
+}
+
+function tailUtf8(text: string, maxBytes: number): string {
+  const buf = Buffer.from(text, "utf8");
+  if (buf.length <= maxBytes) return text;
+  let start = buf.length - maxBytes;
+  while (start < buf.length && (buf[start] & 0xc0) === 0x80) start += 1;
+  return buf.subarray(start).toString("utf8");
+}
+
+/** Drop the oldest bytes, keeping a UTF-8-safe tail behind an ellipsis. */
+function clipUtf8Front(text: string, budgetBytes: number): string {
+  return `…${tailUtf8(text, Math.max(0, budgetBytes - 3))}`;
+}
+
+function omissionMarker(omittedBytes: number): string {
+  return `\n[… ${omittedBytes} bytes omitted …]\n`;
+}
+
+/** Head+tail excerpt within budget; the marker reports the true omission. */
+function headTailExcerpt(
+  output: string,
+  outputBytes: number,
+  budgetBytes: number,
+): string {
+  // Marker digits: upper-bound the omission (outputBytes) so the rendered
+  // marker never overflows the budget when the real omission has fewer digits.
+  const markerBytes = Buffer.byteLength(omissionMarker(outputBytes), "utf8");
+  const head = Math.max(0, Math.floor((budgetBytes - markerBytes) / 2));
+  const tail = Math.max(0, budgetBytes - markerBytes - head);
+  const headText = headUtf8(output, head);
+  const tailText = tailUtf8(output, tail);
+  const omitted =
+    outputBytes -
+    Buffer.byteLength(headText, "utf8") -
+    Buffer.byteLength(tailText, "utf8");
+  return `${headText}${omissionMarker(omitted)}${tailText}`;
+}
+
+export interface RenderedPruneState {
+  state: string;
+  /** Pairs as presented in the state, with excerpt marks (judge payloads). */
+  pairs: PrunePairPayload[];
+}
+
+export function renderPruneState(
+  captured: CapturedEpoch,
+  capBytes: number,
+): RenderedPruneState {
+  const callLine = (seg: Extract<EpochSegment, { kind: "call" }>): string =>
+    `[tool_call #${seg.ordinal} ${seg.toolName}] ${seg.args}\n`;
+  let fixedBytes = 0;
+  for (const seg of captured.segments) {
+    fixedBytes += Buffer.byteLength(
+      seg.kind === "text" ? seg.line : callLine(seg),
+      "utf8",
+    );
+  }
+  // Outputs share what the fixed lines leave; the floor keeps every excerpt
+  // judgeable. Fixed content over budget is clipped from the front (oldest
+  // first) at emit time — the hard backstop that keeps state <= capBytes.
+  const reserve = captured.pairs.length * MIN_OUTPUT_EXCERPT_BYTES;
+  const fixedBudget = Math.max(0, capBytes - reserve);
+  const clipping = fixedBytes > fixedBudget;
+  const perOutput =
+    captured.pairs.length === 0
+      ? 0
+      : Math.max(
+          MIN_OUTPUT_EXCERPT_BYTES,
+          Math.floor(
+            (capBytes - Math.min(fixedBytes, fixedBudget)) /
+              captured.pairs.length,
+          ),
+        );
+  const outputs = new Map<string, { text: string; excerpted: boolean }>();
+  const payloads: PrunePairPayload[] = [];
+  for (const pair of captured.pairs) {
+    const excerpted = pair.outputBytes > perOutput;
+    outputs.set(pair.id, {
+      text: excerpted
+        ? headTailExcerpt(pair.output, pair.outputBytes, perOutput)
+        : pair.output,
+      excerpted,
+    });
+    payloads.push({
+      id: pair.id,
+      toolName: pair.toolName,
+      ordinal: pair.ordinal,
+      excerpted,
+    });
+  }
+  const lines: string[] = [];
+  for (const seg of captured.segments) {
+    if (seg.kind === "text") {
+      lines.push(seg.line);
+      continue;
+    }
+    lines.push(callLine(seg));
+    const rendered = outputs.get(seg.id);
+    if (rendered !== undefined) {
+      lines.push(
+        `[tool_result #${seg.ordinal} ${seg.toolName}] ${rendered.text}\n`,
+      );
+    }
+  }
+  let state = lines.join("");
+  if (clipping) state = clipUtf8Front(state, capBytes);
+  return { state, pairs: payloads };
+}
+
+// --------------------------------------------------------------------------
 // Telemetry: append-only JSONL, one record per route decision or manual pin.
 // The JSONL is the telemetry the thresholds tune from (§3.9); /skill_stats
 // renders its aggregates. Writes are best-effort and loud on failure.
@@ -768,10 +1180,22 @@ export interface ToolSurfaceRecord {
   degraded?: string;
 }
 
+export interface PruneJudgedRecord {
+  event: "PRUNE_JUDGED";
+  ts: number;
+  epoch: number;
+  judged: number;
+  /** Helpfulness scores keyed by `#<ordinal>` within the judged epoch. */
+  scores: Record<string, number>;
+  latency_ms: number;
+  input_tokens: number;
+}
+
 export type TelemetryEvent =
   | RouteDecisionRecord
   | SkillPinnedRecord
-  | ToolSurfaceRecord;
+  | ToolSurfaceRecord
+  | PruneJudgedRecord;
 
 /** Append one telemetry record as a JSONL line. Loud failure via `log`. */
 export function appendTelemetry(
@@ -861,6 +1285,31 @@ function parseTelemetryLine(line: string): TelemetryEvent | null {
         latency_ms: rec.latency_ms,
         input_tokens: rec.input_tokens,
         ...(typeof rec.degraded === "string" ? { degraded: rec.degraded } : {}),
+      };
+    }
+    return null;
+  }
+  if (rec.event === "PRUNE_JUDGED") {
+    const scores = asRecord(rec.scores);
+    if (
+      typeof rec.epoch === "number" &&
+      typeof rec.judged === "number" &&
+      scores !== null &&
+      typeof rec.latency_ms === "number" &&
+      typeof rec.input_tokens === "number"
+    ) {
+      const numericScores: Record<string, number> = {};
+      for (const [k, v] of Object.entries(scores)) {
+        if (typeof v === "number") numericScores[k] = v;
+      }
+      return {
+        event: "PRUNE_JUDGED",
+        ts: typeof rec.ts === "number" ? rec.ts : 0,
+        epoch: rec.epoch,
+        judged: rec.judged,
+        scores: numericScores,
+        latency_ms: rec.latency_ms,
+        input_tokens: rec.input_tokens,
       };
     }
     return null;
@@ -1476,6 +1925,154 @@ export function createToolSurfaceRouter(
 }
 
 // --------------------------------------------------------------------------
+// Epoch pruner (Nozzle 3): the judgment state machine. `agent_settled`
+// closes an epoch; the pruner captures it, judges every not-yet-judged
+// complete pair in one batched request, and caches verdicts by toolCall id
+// — judged once ever, never mid-loop. Application of prune verdicts to the
+// context copy is M2; M1 ends at the cache. Fail-static (§3.5): any judge
+// failure logs ROUTE_DEGRADED, notifies once per error class, and caches
+// nothing (zero pruning = Pi native); unjudged pairs stay eligible for
+// retry at the next settle. Code owns mechanics only — every helpfulness
+// decision is Jev's (owner's ruling).
+// --------------------------------------------------------------------------
+
+export interface PruneVerdict {
+  /** Jev helpfulness score in [0,1]; application thresholds it (M2). */
+  score: number;
+  /** Settle epoch in which the verdict was reached. */
+  epoch: number;
+}
+
+export interface EpochPrunerDeps {
+  apiKey: string | null;
+  jevPruneJudge: JevPruneJudgeFn;
+  stateCapBytes: number;
+  /** Helpfulness score at or below which a pair is pruned (M2 application). */
+  pruneThreshold: number;
+  notify: (message: string, type?: "info" | "warning" | "error") => void;
+  log: (line: string) => void;
+  recordTelemetry: (event: TelemetryEvent) => void;
+  now: () => number;
+}
+
+export interface EpochPruner {
+  /** Judge the closed epoch. Never rejects: failures are loud + fail-static.
+   *  The returned promise settles when the pass is done (M2 boundary and
+   *  tests await it); Pi may fire-and-forget. */
+  onAgentSettled(entries: readonly DigestEntry[]): Promise<void>;
+  /** Verdict for one pair, by toolCall id. */
+  verdict(id: string): PruneVerdict | undefined;
+  /** All cached verdicts (M2 application seam). */
+  verdicts(): ReadonlyMap<string, PruneVerdict>;
+  /** In-flight judge pass, if any (M2 awaits it before snapshotting). */
+  pending(): Promise<void> | null;
+}
+
+export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
+  let epoch = 0;
+  const verdictMap = new Map<string, PruneVerdict>();
+  /** Pairs with a judge pass in flight (double-settle re-entrancy guard). */
+  const judging = new Set<string>();
+  const degradedNotified = new Set<string>();
+  let pendingJudge: Promise<void> | null = null;
+
+  const degrade = (errorClass: string, detail: string): void => {
+    deps.log(
+      `ROUTE_DEGRADED: reason=${errorClass} nozzle=prune ${detail} epoch=${epoch}`,
+    );
+    if (!degradedNotified.has(errorClass)) {
+      degradedNotified.add(errorClass);
+      deps.notify(
+        `jev-context: Jev pruning unavailable (${errorClass}); tool outputs stay unpruned`,
+        "warning",
+      );
+    }
+  };
+
+  const judge = async (entries: readonly DigestEntry[]): Promise<void> => {
+    epoch += 1;
+    const captured = captureEpochPairs(entries);
+    if (captured === null) return;
+    const unjudged = new Set(
+      captured.pairs
+        .filter((p) => !verdictMap.has(p.id) && !judging.has(p.id))
+        .map((p) => p.id),
+    );
+    if (unjudged.size === 0) return;
+    for (const id of unjudged) judging.add(id);
+    try {
+      const rendered = renderPruneState(captured, deps.stateCapBytes);
+      const payloads = rendered.pairs.filter((p) => unjudged.has(p.id));
+      const started = deps.now();
+      const result = await deps.jevPruneJudge({
+        state: rendered.state,
+        pairs: payloads,
+      });
+      const latencyMs = deps.now() - started;
+      if (result.scores === null) {
+        degrade(result.error ?? "unknown", `pairs=${payloads.length}`);
+        return;
+      }
+      const scores: Record<string, number> = {};
+      for (const p of payloads) {
+        const score = result.scores[p.id];
+        if (score === null || score === undefined) {
+          // Per-pair parse gap: fail-static for that pair, cache nothing.
+          degrade("bad_response", `pair=${p.id}`);
+          continue;
+        }
+        verdictMap.set(p.id, { score, epoch });
+        scores[`#${p.ordinal}`] = score;
+      }
+      const judged = Object.keys(scores).length;
+      if (judged === 0) return;
+      deps.log(
+        `PRUNE_JUDGED: epoch=${epoch} judged=${judged} scores={${Object.entries(
+          scores,
+        )
+          .map(([k, v]) => `${k}:${v}`)
+          .join(
+            ",",
+          )}} latency_ms=${latencyMs} input_tokens=${result.inputTokens}`,
+      );
+      deps.recordTelemetry({
+        event: "PRUNE_JUDGED",
+        ts: deps.now(),
+        epoch,
+        judged,
+        scores,
+        latency_ms: latencyMs,
+        input_tokens: result.inputTokens,
+      });
+    } finally {
+      for (const id of unjudged) judging.delete(id);
+    }
+  };
+
+  return {
+    verdict: (id) => verdictMap.get(id),
+    verdicts: () => verdictMap,
+    pending: () => pendingJudge,
+    onAgentSettled(entries) {
+      if (deps.apiKey === null) return Promise.resolve(); // absent mode
+      const run = judge(entries).catch((error) => {
+        // Never-reject contract: the judge client maps expected failures to
+        // results; anything reaching here is a defect — loud, fail-static.
+        degrade(
+          "internal",
+          `error=${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      pendingJudge = run;
+      void run.finally(() => {
+        if (pendingJudge === run) pendingJudge = null;
+      });
+      return run;
+    },
+  };
+}
+
+// --------------------------------------------------------------------------
 // Pi wiring: init on every session_start (config, key, catalog re-derived;
 // session switches and reloads get a fresh router), adapt events to router.
 // --------------------------------------------------------------------------
@@ -1489,6 +2086,8 @@ export interface JevContextDeps {
   jevScore?: JevScoreFn;
   /** Test seam: replaces the real batched namespace client entirely. */
   jevNamespaceScore?: JevNamespaceScoreFn;
+  /** Test seam: replaces the real batched prune-judge client entirely. */
+  jevPruneJudge?: JevPruneJudgeFn;
   /**
    * Tool-set seams (pi.getAllTools/getActiveTools/setActiveTools). When
    * absent, Nozzle 2 is inert and Nozzle 1 behaves exactly as before.
@@ -1509,7 +2108,10 @@ export interface JevContextHandlers {
     ctx: ExtensionContext,
   ): Promise<void>;
   onContext(event: ContextEvent): SkillInjectionResult;
-  onAgentSettled(): void;
+  onAgentSettled(
+    event: AgentSettledEvent,
+    ctx: ExtensionContext,
+  ): Promise<void>;
   /** Unknown-tool miss detection (Nozzle 2 escape hatch). */
   onMessageEnd(event: MessageEndEvent): void;
   /** Manual `/skill:<name>` load: active + pinned against decay. */
@@ -1535,6 +2137,7 @@ export function createJevContextExtension(
 ): JevContextHandlers {
   let router: SkillRouter | null = null;
   let toolRouter: ToolSurfaceRouter | null = null;
+  let pruner: EpochPruner | null = null;
   let telemetryFile = defaultTelemetryFile(deps.homeDir);
   let digestCapBytes = DEFAULT_DIGEST_CAP_BYTES;
   const registeredSkills = new Set<string>();
@@ -1552,7 +2155,7 @@ export function createJevContextExtension(
     const apiKey = resolveApiKey(config, deps.env);
     if (apiKey === null) {
       ctx.ui.notify(
-        `jev-context: no Jev API key (set $${config.apiKeyEnv} or apiKeyFile in config); skill routing and tool surfacing disabled`,
+        `jev-context: no Jev API key (set $${config.apiKeyEnv} or apiKeyFile in config); skill routing, tool surfacing, and epoch pruning disabled`,
         "warning",
       );
     }
@@ -1583,6 +2186,22 @@ export function createJevContextExtension(
               error: "no_api_key",
             })
         : createJevNamespaceScorer({
+            endpoint: config.endpoint,
+            model: config.model,
+            apiKey,
+            timeoutMs: config.requestTimeoutMs,
+          }));
+    const jevPruneJudge: JevPruneJudgeFn =
+      deps.jevPruneJudge ??
+      (apiKey === null
+        ? () =>
+            Promise.resolve({
+              scores: null,
+              inputTokens: 0,
+              latencyMs: 0,
+              error: "no_api_key",
+            })
+        : createJevPruneJudge({
             endpoint: config.endpoint,
             model: config.model,
             apiKey,
@@ -1622,6 +2241,17 @@ export function createJevContextExtension(
               appendTelemetry(telemetryFile, event, deps.log),
             now: deps.now,
           });
+    pruner = createEpochPruner({
+      apiKey,
+      jevPruneJudge,
+      stateCapBytes: config.pruneStateCapBytes,
+      pruneThreshold: config.pruneThreshold,
+      notify: (message, type) => ctx.ui.notify(message, type),
+      log: deps.log,
+      recordTelemetry: (event) =>
+        appendTelemetry(telemetryFile, event, deps.log),
+      now: deps.now,
+    });
     // Fail-static baseline: every session (re)starts from Pi-default tool
     // visibility, key or no key; the first boundary routes from there.
     toolRouter?.onSessionStart();
@@ -1680,8 +2310,12 @@ export function createJevContextExtension(
     onContext(event) {
       return router === null ? {} : router.onContext(event);
     },
-    onAgentSettled() {
+    onAgentSettled(_event, ctx) {
       router?.onAgentSettled();
+      if (pruner === null) return Promise.resolve();
+      // The judge promise is returned so tests (and the M2 boundary via
+      // pruner.pending()) can await it; it never rejects.
+      return pruner.onAgentSettled(ctx.sessionManager.getBranch());
     },
     onMessageEnd(event) {
       toolRouter?.onMessageEnd(event.message);
