@@ -104,6 +104,10 @@ prose here as the reviewable contract and mirror each scenario as a `node:test` 
 - Given Jev is unreachable or errors during scoring, when the epoch starts, then the extension
   notifies once per error class, logs `ROUTE_DEGRADED`, and keeps the current skill set
   (fail-static).
+- Given a completed scoring pass, when the pass ends, then a `ROUTE_DECISION` record is appended
+  to the telemetry JSONL with scores, loaded, skipped_active, evicted, latency, and tokens.
+- Given a telemetry log with recorded decisions, when `/skill_stats` runs, then it renders
+  aggregates: passes, loads, evictions, per-skill hit counts, and tokens spent.
 
 ### Nozzle 2 — tool surfacing
 - Given the always-on core (read, write, edit, bash, grep, find, ls), then it is present in

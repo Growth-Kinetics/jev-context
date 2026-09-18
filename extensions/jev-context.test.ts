@@ -1,12 +1,12 @@
 /**
- * Tests for the jev-context router core (M2). §5 scenario titles are mirrored
+ * Tests for the jev-context extension (M1-M3). §5 scenario titles are mirrored
  * verbatim from VERIFYING.md so "scenario exists ⇔ test exists" is diffable.
  * No network: the Jev client is exercised against a loopback fixture server
  * (§4), everything else through the injected JevScoreFn seam. Fakes that must
  * satisfy Pi runtime types use a documented `as unknown as` double cast.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +19,11 @@ import type {
   UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
+  BeforeAgentStartEvent,
   BuildSystemPromptOptions,
   ContextEvent,
   ExtensionAPI,
+  ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import jevContext, {
@@ -35,12 +37,14 @@ import jevContext, {
   type JevScoreFn,
   type JevScoreRequest,
   loadConfig,
+  renderSkillStats,
   resolveApiKey,
   type SkillEntry,
   type SkillInjectionResult,
   type SkillRouterDeps,
   scanSkillCatalog,
   selectSkillsToLoad,
+  type TelemetryEvent,
 } from "./jev-context.ts";
 
 // ---------------------------------------------------------------- helpers
@@ -103,19 +107,23 @@ function makeRouter(
 ) {
   const logs: string[] = [];
   const notifies: { message: string; type: string | undefined }[] = [];
+  const telemetry: TelemetryEvent[] = [];
   const router = createSkillRouter({
     catalog,
     jevScore,
     apiKey: "test-key",
     loadThreshold: 0.6,
     topK: 3,
+    decayThreshold: 0.25,
+    decayIntervalTurns: 5,
     digestCapBytes: 80_000,
     notify: (message, type) => notifies.push({ message, type }),
     log: (line) => logs.push(line),
+    recordTelemetry: (event) => telemetry.push(event),
     now: () => 1000,
     ...extra,
   });
-  return { router, logs, notifies };
+  return { router, logs, notifies, telemetry };
 }
 
 function injectedOf(result: SkillInjectionResult): UserMessage {
@@ -142,9 +150,13 @@ function asRec(value: unknown): Record<string, unknown> {
 
 test("extension loads and registers on session_start, before_agent_start, context, and agent_settled", () => {
   const registered = new Map<string, unknown>();
+  const commands = new Map<string, unknown>();
   const pi = {
     on(event: string, handler: unknown): void {
       registered.set(event, handler);
+    },
+    registerCommand(name: string, options: unknown): void {
+      commands.set(name, options);
     },
   } as unknown as ExtensionAPI;
   jevContext(pi);
@@ -154,6 +166,7 @@ test("extension loads and registers on session_start, before_agent_start, contex
     "context",
     "session_start",
   ]);
+  assert.ok(commands.has("skill_stats"));
 });
 
 test("Given a catalog of N skills and a new user message, when `before_agent_start` fires, then exactly one Jev request per not-yet-active skill is issued, in parallel, with the full skill body in the question and the digest as state", async () => {
@@ -679,4 +692,279 @@ test("buildSkillInjection renders name and body into one user message", () => {
   assert.equal(message.role, "user");
   assert.equal(message.timestamp, 42);
   assert.ok(textOf(message).includes('<skill name="x">\nBODY\n</skill>'));
+});
+
+// ------------------------------------------------------------- M3 lifecycle
+
+function beforeStartEvent(prompt: string): BeforeAgentStartEvent {
+  return {
+    type: "before_agent_start",
+    prompt,
+    systemPrompt: "",
+    systemPromptOptions: {} as unknown as BuildSystemPromptOptions,
+  };
+}
+
+test("Given an active skill whose decay re-check scores < 0.25 at the K-th user turn since load, then it leaves the injection set at the next boundary", async () => {
+  let scoreA = 0.9;
+  const jevScore: JevScoreFn = async (req) => ({
+    score: req.skillName === "a" ? scoreA : 0.1,
+    inputTokens: 1,
+    latencyMs: 1,
+  });
+  const { router, logs } = makeRouter([skillEntry("a", "A")], jevScore, {
+    decayIntervalTurns: 2,
+    decayThreshold: 0.25,
+  });
+  const turn = (prompt: string) =>
+    router.onBeforeAgentStart({ prompt, entries: [] });
+  await turn("one"); // a loads (0 turns since load)
+  assert.deepEqual(
+    router.activeSkills().map((s) => s.name),
+    ["a"],
+  );
+  await turn("two"); // 1st turn since load: no re-check
+  assert.deepEqual(
+    router.activeSkills().map((s) => s.name),
+    ["a"],
+  );
+  scoreA = 0.1;
+  await turn("three"); // 2nd turn since load: re-check scores 0.1 < 0.25
+  assert.deepEqual(router.activeSkills(), []);
+  // Evicted skills leave the injection set at this boundary.
+  assert.deepEqual(router.onContext(contextEvent([userMessage("x")])), {});
+  assert.ok(logs.some((l) => l.includes("evicted=[a]")));
+});
+
+test("decay re-check at or above the decay threshold keeps the skill active", async () => {
+  let scoreA = 0.9;
+  const jevScore: JevScoreFn = async () => ({
+    score: scoreA,
+    inputTokens: 1,
+    latencyMs: 1,
+  });
+  const { router } = makeRouter([skillEntry("a", "A")], jevScore, {
+    decayIntervalTurns: 2,
+    decayThreshold: 0.25,
+  });
+  const turn = (prompt: string) =>
+    router.onBeforeAgentStart({ prompt, entries: [] });
+  await turn("one");
+  await turn("two");
+  scoreA = 0.5;
+  await turn("three"); // re-check: 0.5 >= 0.25 stays
+  assert.deepEqual(
+    router.activeSkills().map((s) => s.name),
+    ["a"],
+  );
+});
+
+test("decay re-check scoring errors never evict (fail-static)", async () => {
+  let calls = 0;
+  const jevScore: JevScoreFn = async () => {
+    calls += 1;
+    return calls === 1
+      ? { score: 0.9, inputTokens: 1, latencyMs: 1 }
+      : { score: null, inputTokens: 0, latencyMs: 1, error: "unreachable" };
+  };
+  const { router, logs } = makeRouter([skillEntry("a", "A")], jevScore, {
+    decayIntervalTurns: 2,
+    decayThreshold: 0.25,
+  });
+  const turn = (prompt: string) =>
+    router.onBeforeAgentStart({ prompt, entries: [] });
+  await turn("one");
+  await turn("two");
+  await turn("three"); // re-check errors: skill stays
+  assert.deepEqual(
+    router.activeSkills().map((s) => s.name),
+    ["a"],
+  );
+  assert.ok(
+    logs.some((l) => l.startsWith("ROUTE_DEGRADED: reason=unreachable")),
+  );
+});
+
+test("Given a manual `/skill:name` invocation, then that skill is active and pinned against decay", async () => {
+  const calls: string[] = [];
+  const scoreB = 0.1;
+  let lowScores = false;
+  const jevScore: JevScoreFn = async (req) => {
+    calls.push(req.skillName);
+    const score = lowScores ? 0.1 : req.skillName === "b" ? scoreB : 0.9;
+    return { score, inputTokens: 1, latencyMs: 1 };
+  };
+  const { router, telemetry } = makeRouter(
+    [skillEntry("a", "A"), skillEntry("b", "B")],
+    jevScore,
+    { decayIntervalTurns: 2, decayThreshold: 0.25 },
+  );
+  const turn = (prompt: string) =>
+    router.onBeforeAgentStart({ prompt, entries: [] });
+  await turn("one"); // a routes in, b does not
+  assert.equal(router.manualLoad("b"), true);
+  assert.equal(router.manualLoad("nope"), false); // unknown skill
+  // Pinned load is injected immediately, without waiting for a boundary.
+  const content = textOf(
+    injectedOf(router.onContext(contextEvent([userMessage("x")]))),
+  );
+  assert.ok(content.includes('<skill name="b">'));
+  assert.ok(
+    telemetry.some((e) => e.event === "SKILL_PINNED" && e.skill === "b"),
+  );
+  lowScores = true;
+  calls.length = 0;
+  await turn("two");
+  await turn("three"); // a's 2nd turn since load: re-check 0.1 -> evicted
+  await turn("four");
+  await turn("five");
+  assert.deepEqual(
+    router.activeSkills().map((s) => s.name),
+    ["b"], // pinned b survives; a was evicted
+  );
+  assert.ok(!calls.includes("b")); // pinned skills are never re-scored
+});
+
+test("Given a completed scoring pass, when the pass ends, then a `ROUTE_DECISION` record is appended to the telemetry JSONL with scores, loaded, skipped_active, evicted, latency, and tokens", async () => {
+  const home = makeTmpDir();
+  mkdirSync(join(home, ".pi", "agent", "skills", "demo"), { recursive: true });
+  writeFileSync(
+    join(home, ".pi", "agent", "skills", "demo", "SKILL.md"),
+    "DEMO-BODY",
+  );
+  const handlers = createJevContextExtension({
+    homeDir: home,
+    env: { PI_TYPESAFE_JEV: "test-key" },
+    now: () => 1000,
+    log: () => {},
+    jevScore: fakeScorer({ demo: 0.9 }),
+  });
+  const ctx = {
+    cwd: makeTmpDir(),
+    ui: { notify: () => {} },
+    sessionManager: { getBranch: () => [] },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  await handlers.onBeforeAgentStart(beforeStartEvent("one"), ctx);
+  const file = join(home, ".pi", "agent", "jev-context-telemetry.jsonl");
+  const lines = readFileSync(file, "utf8").trim().split("\n");
+  assert.equal(lines.length, 1);
+  const rec = asRec(JSON.parse(lines[0]));
+  assert.equal(rec.event, "ROUTE_DECISION");
+  assert.equal(rec.epoch, 1);
+  assert.deepEqual(rec.scores, { demo: 0.9 });
+  assert.deepEqual(rec.loaded, ["demo"]);
+  assert.deepEqual(rec.skipped_active, []);
+  assert.deepEqual(rec.evicted, []);
+  assert.equal(rec.latency_ms, 0);
+  assert.equal(rec.input_tokens, 10);
+  assert.equal(rec.ts, 1000);
+});
+
+test("Given a telemetry log with recorded decisions, when `/skill_stats` runs, then it renders aggregates: passes, loads, evictions, per-skill hit counts, and tokens spent", () => {
+  const file = join(makeTmpDir(), "telemetry.jsonl");
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({
+        event: "ROUTE_DECISION",
+        ts: 1,
+        epoch: 1,
+        scores: { a: 0.9, b: 0.2 },
+        loaded: ["a"],
+        skipped_active: [],
+        evicted: [],
+        latency_ms: 5,
+        input_tokens: 100,
+      }),
+      JSON.stringify({
+        event: "ROUTE_DECISION",
+        ts: 2,
+        epoch: 2,
+        scores: { b: 0.7 },
+        loaded: ["b"],
+        skipped_active: ["a"],
+        evicted: [],
+        latency_ms: 5,
+        input_tokens: 50,
+      }),
+      JSON.stringify({
+        event: "ROUTE_DECISION",
+        ts: 3,
+        epoch: 3,
+        scores: { a: 0.1 },
+        loaded: [],
+        skipped_active: ["a", "b"],
+        evicted: ["a"],
+        latency_ms: 5,
+        input_tokens: 25,
+      }),
+      JSON.stringify({ event: "SKILL_PINNED", ts: 4, epoch: 3, skill: "c" }),
+      "not json",
+      "",
+    ].join("\n"),
+  );
+  const out = renderSkillStats(file);
+  assert.ok(out.includes("route decisions: 3"));
+  assert.ok(out.includes("loads: 2"));
+  assert.ok(out.includes("evictions: 1"));
+  assert.ok(out.includes("manual pins: 1"));
+  assert.ok(out.includes("input tokens: 175"));
+  assert.ok(out.includes("a: scored=2 loaded=1 evicted=1 avg_score=0.50"));
+  assert.ok(out.includes("b: scored=2 loaded=1 evicted=0 avg_score=0.45"));
+  assert.ok(
+    renderSkillStats(join(makeTmpDir(), "missing.jsonl")).includes(
+      "no telemetry",
+    ),
+  );
+});
+
+test("factory registers `skill_stats` and per-skill `skill:<name>` commands; a skill command pins the skill", async () => {
+  const home = makeTmpDir();
+  mkdirSync(join(home, ".pi", "agent", "skills", "demo"), { recursive: true });
+  writeFileSync(
+    join(home, ".pi", "agent", "skills", "demo", "SKILL.md"),
+    "DEMO-BODY",
+  );
+  const commands = new Map<
+    string,
+    (args: string, ctx: ExtensionCommandContext) => Promise<void>
+  >();
+  const handlers = createJevContextExtension(
+    {
+      homeDir: home,
+      env: { PI_TYPESAFE_JEV: "test-key" },
+      now: () => 1000,
+      log: () => {},
+      jevScore: fakeScorer({ demo: 0.1 }),
+    },
+    (name, options) => {
+      commands.set(name, options.handler);
+    },
+  );
+  assert.ok(commands.has("skill_stats"));
+  const notifications: string[] = [];
+  const cmdCtx = {
+    ui: { notify: (message: string) => notifications.push(message) },
+  } as unknown as ExtensionCommandContext;
+  const ctx = {
+    cwd: makeTmpDir(),
+    ui: { notify: () => {} },
+    sessionManager: { getBranch: () => [] },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  assert.ok(commands.has("skill:demo"));
+  const pin = commands.get("skill:demo");
+  assert.ok(pin !== undefined);
+  await pin("", cmdCtx);
+  // Pinned via command even though the router score (0.1) is below threshold.
+  const content = textOf(
+    injectedOf(handlers.onContext(contextEvent([userMessage("x")]))),
+  );
+  assert.ok(content.includes("DEMO-BODY"));
+  const stats = commands.get("skill_stats");
+  assert.ok(stats !== undefined);
+  await stats("", cmdCtx);
+  assert.ok(notifications.some((m) => m.includes("loaded and pinned")));
+  assert.ok(notifications.some((m) => m.includes("manual pins: 1")));
 });
