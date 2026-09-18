@@ -101,6 +101,9 @@ prose here as the reviewable contract and mirror each scenario as a `node:test` 
   fixed position immediately after the system prompt and prior messages keep their order.
 - Given an `agent_settled` boundary, when the next epoch's first `context` event fires, then the
   injection is rebuilt and remains at the fixed position.
+- Given Jev is unreachable or errors during scoring, when the epoch starts, then the extension
+  notifies once per error class, logs `ROUTE_DEGRADED`, and keeps the current skill set
+  (fail-static).
 
 ### Nozzle 2 — tool surfacing
 - Given the always-on core (read, write, edit, bash, grep, find, ls), then it is present in
