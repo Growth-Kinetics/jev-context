@@ -1,34 +1,35 @@
 {
- "note": "agent-assigned labels, human-reviewable",
- "threshold_policy": {
-  "load": 0.6,
-  "top_k": 3,
-  "decay": 0.25
- },
- "labels": {
-  "data": [
-   "browser-use"
-  ],
-  "data-projects-heavy-thinking": [
-   "heavy-think"
-  ],
-  "data-projects-loqum_io": [
-   "landing-page"
-  ],
-  "data-projects-piui": [
-   "design-taste-frontend"
-  ],
-  "data-projects-platform": [
-   "spec"
-  ],
-  "data-projects-loqum_landing": [
-   "herdr"
-  ],
-  "data-projects-mcd-japan-data": [],
-  "data-personas-omnara": [],
-  "root": [],
-  "data-content-Research": [],
-  "home-alex": [],
-  "data-projects-withanna": []
- }
+  "note": "agent-assigned labels, human-reviewable",
+  "threshold_policy": {
+    "load": 0.6,
+    "top_k": 3,
+    "decay": 0.25
+  },
+  "ratchet": {
+    "note": "recorded from baseline-results.json 2026-09-18; may tighten, never loosen. fp_ceiling 0.0762 = 16/210 observed at load=0.6 (design target ~5%: tightening requires threshold re-tune + live re-run committed together)",
+    "floors": {
+      "data/browser-use": 0.92,
+      "data-projects-heavy-thinking/heavy-think": 0.92,
+      "data-projects-loqum_io/landing-page": 0.81,
+      "data-projects-piui/design-taste-frontend": 0.84,
+      "data-projects-platform/spec": 0.91,
+      "data-projects-loqum_landing/herdr": 0.9
+    },
+    "fp_ceiling": 0.0762,
+    "threshold_at_record": 0.6
+  },
+  "labels": {
+    "data": ["browser-use"],
+    "data-projects-heavy-thinking": ["heavy-think"],
+    "data-projects-loqum_io": ["landing-page"],
+    "data-projects-piui": ["design-taste-frontend"],
+    "data-projects-platform": ["spec"],
+    "data-projects-loqum_landing": ["herdr"],
+    "data-projects-mcd-japan-data": [],
+    "data-personas-omnara": [],
+    "root": [],
+    "data-content-Research": [],
+    "home-alex": [],
+    "data-projects-withanna": []
+  }
 }

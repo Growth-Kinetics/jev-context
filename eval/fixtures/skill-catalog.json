@@ -1,0 +1,24 @@
+{
+ "measuredAt": "2026-09-18",
+ "provenance": "SKILL.md byte sizes measured from the four skill roots used by the calibration eval: /tmp/jev-skills (gone; sizes recorded from the eval run), ~/.pi/agent/skills, ~/.pi/agent/git/github.com/Growth-Kinetics/gk-pi/skills, .../gk-pi/node_modules/pi-heavy-think/skills",
+ "skills": {
+  "agentmail": 2890,
+  "browser-use": 10221,
+  "design-taste-frontend": 21140,
+  "documentation-first-workflow": 6097,
+  "elixir-ash-phoenix": 5990,
+  "hatchet-cli": 1594,
+  "heavy-think": 7599,
+  "herdr": 9269,
+  "high-end-visual-design": 10561,
+  "industrial-brutalist-ui": 8456,
+  "landing-page": 7889,
+  "minimalist-ui": 7901,
+  "neon": 31578,
+  "neon-postgres": 16483,
+  "neon-postgres-branches": 13673,
+  "spec": 11700,
+  "tldraw": 5790,
+  "typesafe-ai": 10040
+ }
+}
