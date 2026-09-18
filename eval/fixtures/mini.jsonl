@@ -1,0 +1,12 @@
+{"type": "message", "id": "u1", "message": {"role": "user", "content": [{"type": "text", "text": "find the CV"}]}}
+{"type": "model_change", "id": "mc1"}
+{"type": "message", "id": "a1", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "planning"}, {"type": "toolCall", "id": "tc1", "name": "bash", "arguments": {"command": "find /content -name cv*"}}, {"type": "text", "text": "found it"}]}}
+{"type": "message", "id": "r1", "message": {"role": "toolResult", "content": [{"type": "text", "text": "cv.pdf"}], "toolCallId": "tc1", "toolName": "bash", "isError": false}}
+{"type": "message", "id": "u2", "message": {"role": "user", "content": [{"type": "text", "text": "search the web for hopper jobs"}]}}
+{"type": "message", "id": "a2", "message": {"role": "assistant", "content": [{"type": "toolCall", "id": "tc2", "name": "tavily_search", "arguments": {"query": "hopper jobs"}}, {"type": "toolCall", "id": "tc3", "name": "bash", "arguments": {"command": "echo ok"}}, {"type": "text", "text": "done"}]}}
+{"type": "message", "id": "r2", "message": {"role": "toolResult", "content": [{"type": "text", "text": "10 results about hopper jobs with details"}], "toolCallId": "tc2", "toolName": "tavily_search"}}
+{"type": "message", "id": "r3", "message": {"role": "toolResult", "content": [{"type": "text", "text": "ok"}], "toolCallId": "tc3", "toolName": "bash", "isError": false}}
+{"type": "message", "id": "u3", "message": {"role": "user", "content": [{"type": "text", "text": "summarize"}]}}
+{"type": "message", "id": "a3", "message": {"role": "assistant", "content": [{"type": "toolCall", "id": "tc4", "name": "bash", "arguments": {"command": "wc -l notes"}}, {"type": "text", "text": "summary ready"}]}}
+{"type": "message", "id": "r4", "message": {"role": "toolResult", "content": [{"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"}], "toolCallId": "tc4", "toolName": "bash"}}
+{not json at all

@@ -1,0 +1,28 @@
+{
+ "measuredAt": "2026-09-18",
+ "provenance": "Core tool schema+description bytes measured from the installed Pi dist (createReadToolDefinition({}) etc., JSON.stringify length). Extension/MCP namespace schemas are not extractable offline; unmeasured tools use defaultToolSchemaBytes = median of measured core tools (539), flagged estimated=true.",
+ "defaultToolSchemaBytes": 539,
+ "core": {
+  "bash": { "bytes": 466, "estimated": false },
+  "read": { "bytes": 607, "estimated": false },
+  "edit": { "bytes": 1102, "estimated": false },
+  "write": { "bytes": 352, "estimated": false },
+  "ls": { "bytes": 397, "estimated": false },
+  "grep": { "bytes": 962, "estimated": false },
+  "find": { "bytes": 539, "estimated": false }
+ },
+ "namespaces": {
+  "headroom": ["headroom_retrieve"],
+  "browser": ["browser_task", "browser_eval", "browser_screenshot", "browser_open", "browser_click", "browser_snapshot", "browser_tabs", "browser_type", "browser_key", "browser_scroll", "browser_wait", "browser_upload", "browser_handover", "browser_status", "browser_page_info"],
+  "tavily": ["tavily_search", "tavily_extract", "tavily_map", "tavily_crawl", "tavily_research_start", "tavily_research_get"],
+  "context7": ["context7_resolve_library_id", "context7_query_docs", "context7_smoke_test"],
+  "goal": ["goal_update_item", "goal_advance", "goal_park", "invoke_subagent"],
+  "pins": ["pin_set", "pin_done", "pin_clear"],
+  "heavy": ["heavy_think", "heavy_apply"],
+  "vision": ["describe_image"],
+  "whatsapp": ["send_whatsapp", "send_kapso_whatsapp"],
+  "web": ["umans_web_search"],
+  "mcp": ["mcp", "mcpScript", "novakit"],
+  "misc": ["cat"]
+ }
+}
