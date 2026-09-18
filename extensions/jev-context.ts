@@ -1,24 +1,38 @@
 /**
- * jev-context — Jev-routed skill loading for Pi (GOAL 2026-09-18-001, Nozzle 1).
+ * jev-context — Jev-routed context governor for Pi (GOAL 2026-09-18-001).
  *
- * What: at each user-turn boundary (`before_agent_start`), scores the skill
- *   catalog against a digest of the session via the Jev (TypeSafe System One)
- *   API — one parallel request per not-yet-active skill with the full skill
- *   body embedded in the noul question — then injects the winning skill
- *   bodies into the deep-copied message list of the `context` event, frozen
- *   until `agent_settled`.
+ * Nozzle 1 — skill loading: at each user-turn boundary (`before_agent_start`),
+ *   scores the skill catalog against a digest of the session via the Jev
+ *   (TypeSafe System One) API — one parallel request per not-yet-active skill
+ *   with the full skill body embedded in the noul question — then injects the
+ *   winning skill bodies into the deep-copied message list of the `context`
+ *   event, frozen until `agent_settled`.
+ * Nozzle 2 — tool surfacing: on the SAME boundary and the SAME digest, scores
+ *   owner-configured tool namespaces in ONE batched Jev request (one noul per
+ *   namespace, tool descriptions only) and applies the result via
+ *   `setActiveTools`. The hardcoded core (read, write, edit, bash, grep, find,
+ *   ls) is never routed; namespace schemas are present only while their
+ *   namespace is active; mutations happen at the boundary only, never
+ *   mid-epoch (§3.4). Jev failure is fail-static: every configured namespace
+ *   becomes visible (Pi default), one notify per error class, ROUTE_DEGRADED
+ *   logged (§3.5).
  * Events used: `session_start` (init: config, API key, catalog scan),
- *   `before_agent_start` (digest + scoring pass + injection rebuild),
- *   `context` (inject into the message copy), `agent_settled` (close epoch).
+ *   `before_agent_start` (digest + both scoring passes + injection rebuild +
+ *   tool-set application), `context` (inject into the message copy),
+ *   `agent_settled` (close epoch).
  * State owned: skill catalog cache, active-skill set (name -> score, pinned
- *   flag, turns since load), the per-epoch frozen injection message, epoch
- *   counter, once-per-reason degradation marks, and the append-only telemetry
+ *   flag, turns since load), the per-epoch frozen injection message, namespace
+ *   active set, once-per-reason degradation marks, once-per-name config logs,
+ *   epoch counters, and the append-only telemetry
  *   JSONL. All session state rebuilds on `session_start` (any reason).
  * Commands: `skill:<name>` per catalog skill (manual load, pinned against
  *   decay — mirrors Pi's native skill-command naming), `skill_stats`.
  * Config: `~/.pi/agent/jev-context.json` then `<cwd>/.pi/jev-context.json`;
  *   the API key comes from the config-named env var (default
  *   $PI_TYPESAFE_JEV) or the config-named file. The key is never logged (§3.6).
+ *   `toolNamespaces` maps namespace -> { tools, prefix } (owner rules, §3.8 —
+ *   the extension ships no bundle opinions); `coreTools` extends the
+ *   hardcoded core floor; `toolSurfaceThreshold` gates namespaces.
  * Invariants (VERIFYING.md): the on-disk transcript is never written (§3.3);
  *   injection is byte-stable within an epoch (§3.4); degradation is loud —
  *   notify once per reason, log ROUTE_DEGRADED, keep the current set (§3.5);
@@ -48,6 +62,28 @@ import type {
 // Config: owner rules live here, not in code (§3.8).
 // --------------------------------------------------------------------------
 
+export interface ToolNamespaceConfig {
+  /** Explicit tool names; intersected with the tools Pi actually has. */
+  tools: string[];
+  /** Prefix match against available tool names (e.g. "browser_"). */
+  prefix: string | undefined;
+}
+
+/**
+ * Always-on core (frozen design): hardcoded floor, never routed, force-kept
+ * in the active tool set. Owner config `coreTools` may extend it, never
+ * shrink it.
+ */
+export const CORE_TOOLS = [
+  "read",
+  "write",
+  "edit",
+  "bash",
+  "grep",
+  "find",
+  "ls",
+] as const;
+
 export interface JevContextConfig {
   endpoint: string;
   model: string;
@@ -61,6 +97,9 @@ export interface JevContextConfig {
   requestTimeoutMs: number;
   telemetryFile: string;
   skillRoots: string[];
+  toolNamespaces: Record<string, ToolNamespaceConfig>;
+  toolSurfaceThreshold: number;
+  coreTools: string[];
 }
 
 export function defaultSkillRoots(homeDir: string, cwd: string): string[] {
@@ -76,6 +115,9 @@ export function defaultTelemetryFile(homeDir: string): string {
   return join(homeDir, ".pi", "agent", "jev-context-telemetry.jsonl");
 }
 
+/** Fallback before any config load; defaultConfig is the single source. */
+export const DEFAULT_DIGEST_CAP_BYTES = 80_000;
+
 export function defaultConfig(homeDir: string, cwd: string): JevContextConfig {
   return {
     endpoint: "https://api.typesafe.ai/v1/systemone",
@@ -86,10 +128,13 @@ export function defaultConfig(homeDir: string, cwd: string): JevContextConfig {
     topK: 3,
     decayThreshold: 0.25,
     decayIntervalTurns: 5,
-    digestCapBytes: 80_000,
+    digestCapBytes: DEFAULT_DIGEST_CAP_BYTES,
     requestTimeoutMs: 300_000,
     telemetryFile: defaultTelemetryFile(homeDir),
     skillRoots: defaultSkillRoots(homeDir, cwd),
+    toolNamespaces: {},
+    toolSurfaceThreshold: 0.6,
+    coreTools: [...CORE_TOOLS],
   };
 }
 
@@ -103,13 +148,27 @@ function expandHome(path: string, homeDir: string): string {
   return path.startsWith("~/") ? join(homeDir, path.slice(2)) : path;
 }
 
+/** Parse one toolNamespaces entry; null when neither key is usable. */
+function pickNamespaceConfig(raw: unknown): ToolNamespaceConfig | null {
+  const r = asRecord(raw);
+  if (r === null) return null;
+  const tools =
+    Array.isArray(r.tools) && r.tools.every((v) => typeof v === "string")
+      ? (r.tools as string[])
+      : [];
+  const prefix = typeof r.prefix === "string" ? r.prefix : undefined;
+  if (tools.length === 0 && prefix === undefined) return null;
+  return { tools, prefix };
+}
+
 /** Keep only known, correctly-typed fields; expand `~/` in path fields. */
 function pickConfigFields(
   raw: unknown,
   homeDir: string,
-): Partial<JevContextConfig> {
+): { fields: Partial<JevContextConfig>; warnings: string[] } {
   const r = asRecord(raw);
-  if (r === null) return {};
+  const warnings: string[] = [];
+  if (r === null) return { fields: {}, warnings };
   const out: Partial<JevContextConfig> = {};
   if (typeof r.endpoint === "string") out.endpoint = r.endpoint;
   if (typeof r.model === "string") out.model = r.model;
@@ -140,7 +199,30 @@ function pickConfigFields(
   ) {
     out.skillRoots = r.skillRoots.map((p) => expandHome(p as string, homeDir));
   }
-  return out;
+  const ns = asRecord(r.toolNamespaces);
+  if (ns !== null) {
+    const parsed: Record<string, ToolNamespaceConfig> = {};
+    for (const [name, value] of Object.entries(ns)) {
+      const entry = pickNamespaceConfig(value);
+      if (entry === null) {
+        warnings.push(`toolNamespaces.${name} has no tools or prefix; ignored`);
+      } else {
+        parsed[name] = entry;
+      }
+    }
+    out.toolNamespaces = parsed;
+  }
+  if (typeof r.toolSurfaceThreshold === "number") {
+    out.toolSurfaceThreshold = r.toolSurfaceThreshold;
+  }
+  if (
+    Array.isArray(r.coreTools) &&
+    r.coreTools.every((v) => typeof v === "string")
+  ) {
+    // Owner config extends the hardcoded floor; it can never shrink it.
+    out.coreTools = [...new Set([...CORE_TOOLS, ...(r.coreTools as string[])])];
+  }
+  return { fields: out, warnings };
 }
 
 /**
@@ -164,10 +246,9 @@ export function loadConfig(paths: {
       continue;
     }
     try {
-      config = {
-        ...config,
-        ...pickConfigFields(JSON.parse(raw), paths.homeDir),
-      };
+      const picked = pickConfigFields(JSON.parse(raw), paths.homeDir);
+      config = { ...config, ...picked.fields };
+      warnings.push(...picked.warnings);
     } catch {
       warnings.push(`malformed config ignored: ${path}`);
     }
@@ -434,6 +515,132 @@ export function createJevScorer(options: {
 }
 
 // --------------------------------------------------------------------------
+// Batched namespace client (Nozzle 2): ONE Jev request per epoch carrying one
+// noul per configured namespace — tool descriptions only, small payloads
+// (frozen design). Request/response shape mirrors eval/harness/client.ts:
+// { state, model, questions: { surface_<ns>: noul } } -> answers[surface_<ns>].
+// Same injectable-seam rule (§4): tests substitute the function or point the
+// real scorer at a loopback fixture server.
+// --------------------------------------------------------------------------
+
+export interface NamespaceScorePayload {
+  name: string;
+  /** One `name: description` line per tool in the namespace. */
+  descriptions: string;
+}
+
+export interface NamespaceScoreRequest {
+  state: string;
+  namespaces: readonly NamespaceScorePayload[];
+}
+
+export interface NamespaceScoreResult {
+  /** Per-namespace score; null entry = unparseable answer for that
+   *  namespace. Null map = whole-request failure (see `error`). */
+  scores: Record<string, number | null> | null;
+  inputTokens: number;
+  latencyMs: number;
+  error?: string;
+}
+
+export type JevNamespaceScoreFn = (
+  request: NamespaceScoreRequest,
+) => Promise<NamespaceScoreResult>;
+
+/** Question key prefix; namespace names come from owner config. */
+export function surfaceQuestionKey(namespace: string): string {
+  return `surface_${namespace}`;
+}
+
+const SURFACE_CRITERIA = {
+  true: "The conversation's task likely requires one of these tools or the user explicitly referenced them",
+  false: "Unlikely to be needed for the current work",
+} as const;
+
+export function buildShouldSurfaceInstructions(
+  namespace: string,
+  descriptions: string,
+): string {
+  return `Below are the tool descriptions of the '${namespace}' tool namespace, one line per tool as 'name: description'. Should this namespace's tool schemas be included in the agent's available tools for the user's current work in the conversation state?\n\n--- TOOL DESCRIPTIONS ---\n${descriptions}`;
+}
+
+export function createJevNamespaceScorer(options: {
+  endpoint: string;
+  model: string;
+  apiKey: string;
+  timeoutMs: number;
+}): JevNamespaceScoreFn {
+  return async (request) => {
+    const started = Date.now();
+    const questions: Record<string, unknown> = {};
+    for (const ns of request.namespaces) {
+      questions[surfaceQuestionKey(ns.name)] = {
+        type: "noul",
+        instructions: buildShouldSurfaceInstructions(ns.name, ns.descriptions),
+        criteria: SURFACE_CRITERIA,
+      };
+    }
+    let response: Response;
+    try {
+      response = await fetch(options.endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          state: request.state,
+          model: options.model,
+          questions,
+        }),
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.name === "TimeoutError"
+          ? "timeout"
+          : "unreachable";
+      return {
+        scores: null,
+        inputTokens: 0,
+        latencyMs: Date.now() - started,
+        error: reason,
+      };
+    }
+    const latencyMs = Date.now() - started;
+    if (!response.ok) {
+      return {
+        scores: null,
+        inputTokens: 0,
+        latencyMs,
+        error: `http_${response.status}`,
+      };
+    }
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      return { scores: null, inputTokens: 0, latencyMs, error: "bad_response" };
+    }
+    const root = asRecord(data);
+    const answers = asRecord(root?.answers);
+    if (answers === null) {
+      return { scores: null, inputTokens: 0, latencyMs, error: "bad_response" };
+    }
+    const usage = asRecord(root?.usage);
+    const inputTokens =
+      typeof usage?.input_tokens === "number" ? usage.input_tokens : 0;
+    const scores: Record<string, number | null> = {};
+    for (const ns of request.namespaces) {
+      const noul = asRecord(answers[surfaceQuestionKey(ns.name)])?.noul;
+      scores[ns.name] =
+        typeof noul === "number" && !Number.isNaN(noul) ? noul : null;
+    }
+    return { scores, inputTokens, latencyMs };
+  };
+}
+
+// --------------------------------------------------------------------------
 // Policy: threshold + top-K, deterministic tie-break (score desc, name asc).
 // --------------------------------------------------------------------------
 
@@ -455,6 +662,63 @@ export function selectSkillsToLoad(
     .filter((s) => s.score >= threshold)
     .sort(byScoreThenName)
     .slice(0, topK);
+}
+
+// --------------------------------------------------------------------------
+// Namespace resolution (Nozzle 2): owner config -> concrete tool lists,
+// resolved against the tools Pi actually has this session. Explicit names
+// that match nothing are reported as unknown (logged once per session);
+// prefix matches are recomputed every boundary so late-registered tools
+// (MCP, extensions) join their namespace without config edits.
+// --------------------------------------------------------------------------
+
+/** Structural minimum of Pi's ToolInfo needed here. */
+export interface ToolSurfaceInfo {
+  name: string;
+  description: string;
+}
+
+export interface ResolvedNamespace {
+  name: string;
+  tools: string[];
+  descriptions: string;
+}
+
+export function resolveNamespaces(
+  namespaces: Readonly<Record<string, ToolNamespaceConfig>>,
+  allTools: readonly ToolSurfaceInfo[],
+): { resolved: ResolvedNamespace[]; unknown: Record<string, string[]> } {
+  const byName = new Map(allTools.map((t) => [t.name, t]));
+  const resolved: ResolvedNamespace[] = [];
+  const unknown: Record<string, string[]> = {};
+  for (const [name, ns] of Object.entries(namespaces)) {
+    const names = new Set<string>();
+    for (const toolName of ns.tools) {
+      if (byName.has(toolName)) {
+        names.add(toolName);
+      } else {
+        const list = unknown[name] ?? [];
+        list.push(toolName);
+        unknown[name] = list;
+      }
+    }
+    if (ns.prefix !== undefined) {
+      for (const t of allTools) {
+        if (t.name.startsWith(ns.prefix)) names.add(t.name);
+      }
+    }
+    const tools = [...names].sort();
+    if (tools.length === 0) continue; // nothing to surface or score
+    resolved.push({
+      name,
+      tools,
+      descriptions: tools
+        .map((t) => `${t}: ${byName.get(t)?.description ?? ""}`)
+        .join("\n"),
+    });
+  }
+  resolved.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { resolved, unknown };
 }
 
 // --------------------------------------------------------------------------
@@ -676,6 +940,9 @@ export interface SkillRouter {
   onBeforeAgentStart(input: {
     prompt: string;
     entries: readonly DigestEntry[];
+    /** Prebuilt by the wiring when Nozzle 2 shares the boundary (one digest
+     *  per epoch, frozen design); built from prompt+entries when absent. */
+    digest?: string;
   }): Promise<void>;
   onContext(event: ContextEvent): SkillInjectionResult;
   onAgentSettled(): void;
@@ -751,12 +1018,13 @@ export function createSkillRouter(deps: SkillRouterDeps): SkillRouter {
       return true;
     },
 
-    async onBeforeAgentStart({ prompt, entries }) {
+    async onBeforeAgentStart({ prompt, entries, digest: prebuilt }) {
       if (deps.apiKey === null) return; // absent mode (§5 cross-cutting)
       epoch += 1;
       for (const a of active.values()) a.turnsSinceLoad += 1;
       const skippedActive = sortedActive().map((s) => s.name);
-      const digest = buildSessionDigest(entries, prompt, deps.digestCapBytes);
+      const digest =
+        prebuilt ?? buildSessionDigest(entries, prompt, deps.digestCapBytes);
       // Skip-active: load scoring never re-scores active skills. The decay
       // re-check is the explicit exception: every decayIntervalTurns-th user
       // turn since load, a non-pinned active skill is re-scored once against
@@ -866,6 +1134,157 @@ export function createSkillRouter(deps: SkillRouterDeps): SkillRouter {
 }
 
 // --------------------------------------------------------------------------
+// Tool surface router (Nozzle 2): the namespace state machine. Shares the
+// digest and the `before_agent_start` epoch boundary with Nozzle 1 (built
+// once by the wiring); pure of Pi plumbing — the tool-set seams are injected.
+// Boundary-only mutation (§3.4): setActiveTools fires exclusively here, and
+// only when the computed set actually changed.
+// --------------------------------------------------------------------------
+
+export interface ToolSurfaceRouterDeps {
+  namespaces: Readonly<Record<string, ToolNamespaceConfig>>;
+  /** Hardcoded floor ∪ owner config; never removed by routing. */
+  coreTools: readonly string[];
+  threshold: number;
+  apiKey: string | null;
+  jevNamespaceScore: JevNamespaceScoreFn;
+  getAllTools: () => readonly ToolSurfaceInfo[];
+  getActiveTools: () => readonly string[];
+  setActiveTools: (names: string[]) => void;
+  notify: (message: string, type?: "info" | "warning" | "error") => void;
+  log: (line: string) => void;
+  now: () => number;
+}
+
+export interface ToolSurfaceRouter {
+  onBeforeAgentStart(input: { digest: string }): Promise<void>;
+  /** Namespaces whose tools are currently surfaced on (tests, telemetry). */
+  activeNamespaces(): readonly string[];
+}
+
+function sameNameSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name) => b.includes(name));
+}
+
+export function createToolSurfaceRouter(
+  deps: ToolSurfaceRouterDeps,
+): ToolSurfaceRouter {
+  let epoch = 0;
+  let active: string[] = [];
+  const degradedNotified = new Set<string>();
+  const unknownLogged = new Set<string>();
+
+  const degrade = (errorClass: string, detail: string): void => {
+    deps.log(
+      `ROUTE_DEGRADED: reason=${errorClass} nozzle=tools ${detail} epoch=${epoch}`,
+    );
+    if (!degradedNotified.has(errorClass)) {
+      degradedNotified.add(errorClass);
+      deps.notify(
+        `jev-context: Jev scoring unavailable (${errorClass}); all tool namespaces stay visible`,
+        "warning",
+      );
+    }
+  };
+
+  /** Fail-static restore: every configured namespace visible (Pi default). */
+  const restoreAll = (
+    resolved: readonly ResolvedNamespace[],
+    current: readonly string[],
+  ): void => {
+    const next = [...current];
+    for (const ns of resolved) {
+      for (const tool of ns.tools) {
+        if (!next.includes(tool)) next.push(tool);
+      }
+    }
+    if (!sameNameSet(next, current)) deps.setActiveTools(next);
+  };
+
+  return {
+    activeNamespaces: () => active,
+
+    async onBeforeAgentStart({ digest }) {
+      if (deps.apiKey === null) return; // absent mode: behaves as if absent
+      if (Object.keys(deps.namespaces).length === 0) return; // no opinions shipped
+      epoch += 1;
+      const { resolved, unknown } = resolveNamespaces(
+        deps.namespaces,
+        deps.getAllTools(),
+      );
+      for (const [ns, names] of Object.entries(unknown)) {
+        for (const toolName of names) {
+          const key = `${ns}:${toolName}`;
+          if (unknownLogged.has(key)) continue;
+          unknownLogged.add(key);
+          deps.log(
+            `TOOL_SURFACE_CONFIG: namespace=${ns} unknown_tool=${toolName}`,
+          );
+        }
+      }
+      if (resolved.length === 0) return; // nothing resolved: no mutation
+      const current = [...deps.getActiveTools()];
+      const result = await deps.jevNamespaceScore({
+        state: digest,
+        namespaces: resolved.map((r) => ({
+          name: r.name,
+          descriptions: r.descriptions,
+        })),
+      });
+      if (result.scores === null) {
+        // Whole-request failure: fail-static (§3.5), Pi default visibility.
+        degrade(result.error ?? "unknown", "batch");
+        restoreAll(resolved, current);
+        active = resolved.map((r) => r.name);
+        return;
+      }
+      const scores: Record<string, number> = {};
+      const visible = new Set<string>();
+      const inactiveTools = new Set<string>();
+      const nextActive: string[] = [];
+      for (const ns of resolved) {
+        const score = result.scores[ns.name];
+        if (score === null || score === undefined) {
+          // Per-namespace parse gap: fail-static for that namespace.
+          degrade("bad_response", `namespace=${ns.name}`);
+          for (const t of ns.tools) visible.add(t);
+          nextActive.push(ns.name);
+          continue;
+        }
+        scores[ns.name] = score;
+        if (score >= deps.threshold) {
+          nextActive.push(ns.name);
+          for (const t of ns.tools) visible.add(t);
+        } else {
+          for (const t of ns.tools) inactiveTools.add(t);
+        }
+      }
+      // Core is never routed (§5): never removed, force-present if Pi has it.
+      const available = new Set(deps.getAllTools().map((t) => t.name));
+      for (const core of deps.coreTools) {
+        inactiveTools.delete(core);
+        if (available.has(core)) visible.add(core);
+      }
+      // A tool in two namespaces stays visible if either namespace is on.
+      const hidden = new Set([...inactiveTools].filter((t) => !visible.has(t)));
+      const next = current.filter((t) => !hidden.has(t));
+      for (const t of [...visible].sort()) {
+        if (!next.includes(t)) next.push(t);
+      }
+      if (!sameNameSet(next, current)) deps.setActiveTools(next);
+      active = nextActive;
+      deps.log(
+        `TOOL_SURFACE: epoch=${epoch} active=[${nextActive.join(",")}] scores={${Object.entries(
+          scores,
+        )
+          .map(([k, v]) => `${k}:${v}`)
+          .join(",")}}`,
+      );
+    },
+  };
+}
+
+// --------------------------------------------------------------------------
 // Pi wiring: init on every session_start (config, key, catalog re-derived;
 // session switches and reloads get a fresh router), adapt events to router.
 // --------------------------------------------------------------------------
@@ -877,6 +1296,19 @@ export interface JevContextDeps {
   log: (line: string) => void;
   /** Test seam: replaces the real Jev client entirely. */
   jevScore?: JevScoreFn;
+  /** Test seam: replaces the real batched namespace client entirely. */
+  jevNamespaceScore?: JevNamespaceScoreFn;
+  /**
+   * Tool-set seams (pi.getAllTools/getActiveTools/setActiveTools). When
+   * absent, Nozzle 2 is inert and Nozzle 1 behaves exactly as before.
+   */
+  tools?: ToolSurfaceSeams;
+}
+
+export interface ToolSurfaceSeams {
+  getAllTools: () => readonly ToolSurfaceInfo[];
+  getActiveTools: () => readonly string[];
+  setActiveTools: (names: string[]) => void;
 }
 
 export interface JevContextHandlers {
@@ -909,7 +1341,9 @@ export function createJevContextExtension(
   registerCommand?: CommandRegistrar,
 ): JevContextHandlers {
   let router: SkillRouter | null = null;
+  let toolRouter: ToolSurfaceRouter | null = null;
   let telemetryFile = defaultTelemetryFile(deps.homeDir);
+  let digestCapBytes = DEFAULT_DIGEST_CAP_BYTES;
   const registeredSkills = new Set<string>();
 
   const build = (ctx: ExtensionContext): SkillRouter => {
@@ -921,10 +1355,11 @@ export function createJevContextExtension(
     });
     for (const w of warnings) ctx.ui.notify(`jev-context: ${w}`, "warning");
     telemetryFile = config.telemetryFile;
+    digestCapBytes = config.digestCapBytes;
     const apiKey = resolveApiKey(config, deps.env);
     if (apiKey === null) {
       ctx.ui.notify(
-        `jev-context: no Jev API key (set $${config.apiKeyEnv} or apiKeyFile in config); skill routing disabled`,
+        `jev-context: no Jev API key (set $${config.apiKeyEnv} or apiKeyFile in config); skill routing and tool surfacing disabled`,
         "warning",
       );
     }
@@ -939,6 +1374,22 @@ export function createJevContextExtension(
               error: "no_api_key",
             })
         : createJevScorer({
+            endpoint: config.endpoint,
+            model: config.model,
+            apiKey,
+            timeoutMs: config.requestTimeoutMs,
+          }));
+    const jevNamespaceScore: JevNamespaceScoreFn =
+      deps.jevNamespaceScore ??
+      (apiKey === null
+        ? () =>
+            Promise.resolve({
+              scores: null,
+              inputTokens: 0,
+              latencyMs: 0,
+              error: "no_api_key",
+            })
+        : createJevNamespaceScorer({
             endpoint: config.endpoint,
             model: config.model,
             apiKey,
@@ -960,6 +1411,22 @@ export function createJevContextExtension(
         appendTelemetry(telemetryFile, event, deps.log),
       now: deps.now,
     });
+    toolRouter =
+      deps.tools === undefined
+        ? null
+        : createToolSurfaceRouter({
+            namespaces: config.toolNamespaces,
+            coreTools: config.coreTools,
+            threshold: config.toolSurfaceThreshold,
+            apiKey,
+            jevNamespaceScore,
+            getAllTools: deps.tools.getAllTools,
+            getActiveTools: deps.tools.getActiveTools,
+            setActiveTools: deps.tools.setActiveTools,
+            notify: (message, type) => ctx.ui.notify(message, type),
+            log: deps.log,
+            now: deps.now,
+          });
     // Per-skill manual-load commands, named after Pi's native skill-command
     // convention (`/skill:<name>`). Registered once per skill name across
     // sessions; the handler always targets the live router.
@@ -1001,10 +1468,16 @@ export function createJevContextExtension(
     async onBeforeAgentStart(event, ctx) {
       // Defensive lazy init only; session_start has normally fired first.
       if (router === null) router = build(ctx);
-      await router.onBeforeAgentStart({
-        prompt: event.prompt,
-        entries: ctx.sessionManager.getBranch(),
-      });
+      const entries = ctx.sessionManager.getBranch();
+      // One digest per boundary, shared by both nozzles (frozen design):
+      // built here, handed to the skill pass and the namespace pass alike.
+      const digest = buildSessionDigest(entries, event.prompt, digestCapBytes);
+      await Promise.all([
+        router.onBeforeAgentStart({ prompt: event.prompt, entries, digest }),
+        toolRouter === null
+          ? Promise.resolve()
+          : toolRouter.onBeforeAgentStart({ digest }),
+      ]);
     },
     onContext(event) {
       return router === null ? {} : router.onContext(event);
@@ -1032,6 +1505,11 @@ export default function jevContext(pi: ExtensionAPI): void {
       env: process.env,
       now: () => Date.now(),
       log: (line) => console.error(line),
+      tools: {
+        getAllTools: () => pi.getAllTools(),
+        getActiveTools: () => pi.getActiveTools(),
+        setActiveTools: (names) => pi.setActiveTools(names),
+      },
     },
     (name, options) => pi.registerCommand(name, options),
   );
