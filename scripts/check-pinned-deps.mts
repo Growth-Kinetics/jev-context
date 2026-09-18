@@ -2,7 +2,9 @@
 // Mirrors pi-mono scripts/check-pinned-deps.mjs intent, reduced for a single-package repo.
 import { readFileSync } from "node:fs";
 
-const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const pkg = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
 const offenders: string[] = [];
 for (const section of ["dependencies", "devDependencies"] as const) {
   for (const [name, range] of Object.entries(pkg[section] ?? {})) {
@@ -12,7 +14,9 @@ for (const section of ["dependencies", "devDependencies"] as const) {
   }
 }
 if (offenders.length > 0) {
-  console.error(`PINNED_DEPS_VIOLATION:\n${offenders.map((o) => `  ${o}`).join("\n")}`);
+  console.error(
+    `PINNED_DEPS_VIOLATION:\n${offenders.map((o) => `  ${o}`).join("\n")}`,
+  );
   process.exit(1);
 }
 console.log("PINNED_DEPS_OK: all dependency ranges exact-pinned");
