@@ -109,3 +109,47 @@ after three-decimal parity demonstration. 34 node:test cases, all gates green.
   the harness tests deliberately do not mirror them (they cover parser/policy/arms/
   gate/determinism). Reviewers diffing §5 against test titles should scope to
   `extensions/**`, not `eval/**`.
+
+## 2026-09-18 — pruning item (GOAL_2026-09-18-001/pruning, SESSION_SPEC_2026-09-18-003)
+
+Nozzle 3 complete: M1 (epoch capture + verdict cache) and M2 (prune application +
+invariants), implemented directly by the item agent (orchestrator directive: no
+heavy_think). 101/101 tests, `npm run check` green. PR #6.
+
+### What the design cost to learn
+
+- **The verdict-cache key was the one genuinely non-obvious decision.** VERIFYING §5 says
+  "verdicts cached by message id", but the `context` event carries `AgentMessage[]` with no
+  entry ids, while session entries carry ids that never reach the context copy. The toolCall
+  id is the only identifier present in both representations, so it became the cache key and
+  the surgery join key. Any future nozzle that needs to key judgments across the
+  session-entry / context-message boundary will hit the same constraint — start from
+  toolCall id, not entry id.
+- **Fail-static means retry-eligible.** A failed judge pass caches nothing and the pairs
+  stay eligible at the next settle; "judged once ever" binds to *reached verdicts*, not to
+  attempts. Double-settle re-entrancy is guarded by an in-flight id set, not by marking
+  pairs as seen.
+- **PRUNE_EPOCH belongs to the boundary, not the settle.** The spec telemetry line
+  (judged/pruned/kept/tokens_reclaimed) only has meaning when the applied set grows, so the
+  judge-time record is PRUNE_JUDGED (scores + tokens) and PRUNE_EPOCH fires from
+  `refreshAppliedSet()` when new verdicts freeze in. Quiet boundaries emit nothing.
+- **The `context` composition has a trap:** the skill router returns `{}` when it has no
+  injection, which would silently drop prune surgery if pruning ran first. The wiring
+  patches `{ messages: pruned }` in that case, and `applyPruneSet` returns the input
+  reference on no-op so "no surgery" and "no injection" compose cleanly.
+- **Empty husks are provider-illegal.** An assistant message that carried only pruned
+  toolCall parts must be dropped, not left with `content: []` — mechanics (provider content
+  non-empty), not judgment.
+
+### Conventions confirmed (no deviation)
+
+- 4-bytes/token `tokens_reclaimed` estimate is telemetry-only; it feeds no decision, which
+  keeps it clear of the owner's no-deterministic-heuristics ruling. The bench item's 3.5 B/t
+  tokenizer stays the harness-side model; the extension does not import it.
+- `biome check --write` as author fixes formatting; the gate stays no-write. Biome also
+  re-sorted my hand-ordered import block — stop hand-sorting and let the formatter own it.
+- §5 scenario mirroring works as advertised: the reviewer diff of VERIFYING §5 Nozzle-3
+  scenarios against test titles closes 1:1 (2 scenarios in M1, 2 in M2).
+- `onAgentSettled(event, ctx)` returning the judge promise (never rejects) gives tests and
+  the M2 boundary an await seam while Pi may fire-and-forget — the pattern to reuse for any
+  future settle-time work.
