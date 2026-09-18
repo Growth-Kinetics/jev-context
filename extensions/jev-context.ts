@@ -33,20 +33,30 @@
  *   entries and the context-event copy — and judged once ever, never
  *   mid-loop. Code owns mechanics only; every helpfulness decision is
  *   Jev's (owner's ruling). Application of prune verdicts to the context
- *   copy is milestone M2; M1 ends at the verdict cache. Fail-static:
- *   judge failures log ROUTE_DEGRADED, notify once per error class, and
- *   cache nothing (zero pruning = Pi native). Every judged epoch appends
- *   a PRUNE_JUDGED record to the telemetry JSONL.
+ *   copy is milestone M2. At each user-turn boundary the pruner freezes
+ *   an applied set (awaiting any in-flight judge pass); the `context`
+ *   handler then removes each pruned pair — the toolCall part and its
+ *   whole toolResult message — from the deep-copied message list, while
+ *   every thinking/text part of those messages remains (§3.3: the
+ *   on-disk transcript is never written). The applied set is byte-stable
+ *   within the epoch (§3.4); new verdicts apply only at the next
+ *   boundary. Every judged epoch appends a PRUNE_JUDGED record, and every
+ *   boundary that applies new verdicts appends a PRUNE_EPOCH record
+ *   (judged/pruned/kept/tokens_reclaimed/scores) to the telemetry JSONL.
+ *   Fail-static: judge failures log ROUTE_DEGRADED, notify once per error
+ *   class, and cache nothing (zero pruning = Pi native).
  * Events used: `session_start` (init: config, API key, catalog scan,
  *   fail-static tool baseline),
  *   `before_agent_start` (digest + both scoring passes + injection rebuild +
- *   tool-set application), `context` (inject into the message copy),
+ *   tool-set application + prune applied-set refresh), `context` (inject
+ *   into and prune the message copy),
  *   `agent_settled` (close epoch + Nozzle-3 epoch judgment), `message_end`
  *   (unknown-tool miss detection).
  * State owned: skill catalog cache, active-skill set (name -> score, pinned
  *   flag, turns since load), the per-epoch frozen injection message, namespace
  *   active set, pending namespace misses, the prune verdict cache (toolCall
- *   id -> verdict), once-per-reason degradation marks,
+ *   id -> verdict) and its frozen per-epoch applied set, once-per-reason
+ *   degradation marks,
  *   once-per-name config logs, epoch counters, and the append-only telemetry
  *   JSONL. All session state rebuilds on `session_start` (any reason).
  * Commands: `skill:<name>` per catalog skill (manual load, pinned against
@@ -1191,11 +1201,26 @@ export interface PruneJudgedRecord {
   input_tokens: number;
 }
 
+export interface PruneEpochRecord {
+  event: "PRUNE_EPOCH";
+  ts: number;
+  epoch: number;
+  /** Verdicts newly applied at this boundary. */
+  judged: number;
+  pruned: number;
+  kept: number;
+  /** Estimate at 4 bytes/token over pruned output bytes; telemetry only. */
+  tokens_reclaimed: number;
+  /** Newly applied helpfulness scores, by toolCall id. */
+  scores: Record<string, number>;
+}
+
 export type TelemetryEvent =
   | RouteDecisionRecord
   | SkillPinnedRecord
   | ToolSurfaceRecord
-  | PruneJudgedRecord;
+  | PruneJudgedRecord
+  | PruneEpochRecord;
 
 /** Append one telemetry record as a JSONL line. Loud failure via `log`. */
 export function appendTelemetry(
@@ -1310,6 +1335,33 @@ function parseTelemetryLine(line: string): TelemetryEvent | null {
         scores: numericScores,
         latency_ms: rec.latency_ms,
         input_tokens: rec.input_tokens,
+      };
+    }
+    return null;
+  }
+  if (rec.event === "PRUNE_EPOCH") {
+    const scores = asRecord(rec.scores);
+    if (
+      typeof rec.epoch === "number" &&
+      typeof rec.judged === "number" &&
+      typeof rec.pruned === "number" &&
+      typeof rec.kept === "number" &&
+      typeof rec.tokens_reclaimed === "number" &&
+      scores !== null
+    ) {
+      const numericScores: Record<string, number> = {};
+      for (const [k, v] of Object.entries(scores)) {
+        if (typeof v === "number") numericScores[k] = v;
+      }
+      return {
+        event: "PRUNE_EPOCH",
+        ts: typeof rec.ts === "number" ? rec.ts : 0,
+        epoch: rec.epoch,
+        judged: rec.judged,
+        pruned: rec.pruned,
+        kept: rec.kept,
+        tokens_reclaimed: rec.tokens_reclaimed,
+        scores: numericScores,
       };
     }
     return null;
@@ -1925,22 +1977,67 @@ export function createToolSurfaceRouter(
 }
 
 // --------------------------------------------------------------------------
+// Prune application (Nozzle 3, M2): remove the tool call/result PAIRS the
+// frozen applied set condemns from a context-event message copy. The
+// provider tool_use/tool_result pairing invariant holds by construction:
+// both sides go or neither. All thinking/text parts REMAIN — learning
+// stays, garbage goes. An assistant message that carried nothing but
+// pruned calls leaves no empty husk. Pure: same input + same frozen set
+// = byte-identical output (§3.4). Returns the input reference when
+// nothing matches, so a no-op context stays a no-op for the wiring.
+// --------------------------------------------------------------------------
+
+export function applyPruneSet(
+  messages: readonly AgentMessage[],
+  pruneIds: ReadonlySet<string>,
+): AgentMessage[] {
+  if (pruneIds.size === 0) return messages as AgentMessage[];
+  let changed = false;
+  const out: AgentMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      const kept = message.content.filter(
+        (part) => part.type !== "toolCall" || !pruneIds.has(part.id),
+      );
+      if (kept.length === message.content.length) {
+        out.push(message);
+        continue;
+      }
+      changed = true;
+      if (kept.length === 0) continue; // carried only pruned pair(s)
+      out.push({ ...message, content: kept });
+    } else if (message.role === "toolResult") {
+      if (pruneIds.has(message.toolCallId)) {
+        changed = true;
+        continue;
+      }
+      out.push(message);
+    } else {
+      out.push(message);
+    }
+  }
+  return changed ? out : (messages as AgentMessage[]);
+}
+
+// --------------------------------------------------------------------------
 // Epoch pruner (Nozzle 3): the judgment state machine. `agent_settled`
 // closes an epoch; the pruner captures it, judges every not-yet-judged
 // complete pair in one batched request, and caches verdicts by toolCall id
 // — judged once ever, never mid-loop. Application of prune verdicts to the
-// context copy is M2; M1 ends at the cache. Fail-static (§3.5): any judge
-// failure logs ROUTE_DEGRADED, notifies once per error class, and caches
-// nothing (zero pruning = Pi native); unjudged pairs stay eligible for
-// retry at the next settle. Code owns mechanics only — every helpfulness
-// decision is Jev's (owner's ruling).
+// context copy is M2. Fail-static (§3.5): any judge failure logs
+// ROUTE_DEGRADED, notifies once per error class, and caches nothing (zero
+// pruning = Pi native); unjudged pairs stay eligible for retry at the next
+// settle. Code owns mechanics only — every helpfulness decision is Jev's
+// (owner's ruling).
 // --------------------------------------------------------------------------
 
 export interface PruneVerdict {
-  /** Jev helpfulness score in [0,1]; application thresholds it (M2). */
+  /** Jev helpfulness score in [0,1]; application thresholds it. */
   score: number;
   /** Settle epoch in which the verdict was reached. */
   epoch: number;
+  /** Byte size of the judged output; feeds the tokens_reclaimed estimate. */
+  outputBytes: number;
 }
 
 export interface EpochPrunerDeps {
@@ -1966,6 +2063,15 @@ export interface EpochPruner {
   verdicts(): ReadonlyMap<string, PruneVerdict>;
   /** In-flight judge pass, if any (M2 awaits it before snapshotting). */
   pending(): Promise<void> | null;
+  /** M2: freeze the current verdicts as the applied set for the new epoch.
+   *  Awaits any in-flight judge pass first; emits PRUNE_EPOCH when new
+   *  verdicts enter the applied set. Boundary-only (§3.4). */
+  refreshAppliedSet(): Promise<void>;
+  /** M2: remove the frozen applied set's pruned pairs from a context-event
+   *  message copy. Pure on the frozen set: byte-stable within an epoch. */
+  applyPrunes(messages: readonly AgentMessage[]): AgentMessage[];
+  /** M2: the frozen prune ids of the applied set (tests). */
+  appliedIds(): ReadonlySet<string>;
 }
 
 export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
@@ -1975,6 +2081,10 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
   const judging = new Set<string>();
   const degradedNotified = new Set<string>();
   let pendingJudge: Promise<void> | null = null;
+  /** Frozen applied set: verdicts snapshotted at the last boundary (§3.4). */
+  const applied = new Map<string, PruneVerdict>();
+  /** Frozen prune ids: applied verdicts at or below the threshold. */
+  let appliedPruneIds: ReadonlySet<string> = new Set();
 
   const degrade = (errorClass: string, detail: string): void => {
     deps.log(
@@ -2021,7 +2131,12 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
           degrade("bad_response", `pair=${p.id}`);
           continue;
         }
-        verdictMap.set(p.id, { score, epoch });
+        verdictMap.set(p.id, {
+          score,
+          epoch,
+          outputBytes:
+            captured.pairs.find((cp) => cp.id === p.id)?.outputBytes ?? 0,
+        });
         scores[`#${p.ordinal}`] = score;
       }
       const judged = Object.keys(scores).length;
@@ -2049,10 +2164,53 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
     }
   };
 
+  const refreshAppliedSet = async (): Promise<void> => {
+    if (deps.apiKey === null) return; // absent mode
+    if (pendingJudge !== null) await pendingJudge;
+    const fresh = [...verdictMap.entries()].filter(([id]) => !applied.has(id));
+    if (fresh.length === 0) return;
+    for (const [id, v] of fresh) applied.set(id, v);
+    const nextIds = new Set<string>();
+    for (const [id, v] of applied) {
+      if (v.score <= deps.pruneThreshold) nextIds.add(id);
+    }
+    appliedPruneIds = nextIds;
+    // PRUNE_EPOCH: what THIS boundary newly applies. tokens_reclaimed is a
+    // 4-bytes/token estimate over pruned output bytes — telemetry only,
+    // never a decision input.
+    const pruned = fresh.filter(([, v]) => v.score <= deps.pruneThreshold);
+    const tokensReclaimed = Math.ceil(
+      pruned.reduce((sum, [, v]) => sum + v.outputBytes, 0) / 4,
+    );
+    const settledEpoch = Math.max(...fresh.map(([, v]) => v.epoch));
+    const scores: Record<string, number> = {};
+    for (const [id, v] of fresh) scores[id] = v.score;
+    deps.log(
+      `PRUNE_EPOCH: epoch=${settledEpoch} judged=${fresh.length} pruned=${pruned.length} kept=${fresh.length - pruned.length} tokens_reclaimed=${tokensReclaimed} scores={${Object.entries(
+        scores,
+      )
+        .map(([k, v]) => `${k}:${v}`)
+        .join(",")}}`,
+    );
+    deps.recordTelemetry({
+      event: "PRUNE_EPOCH",
+      ts: deps.now(),
+      epoch: settledEpoch,
+      judged: fresh.length,
+      pruned: pruned.length,
+      kept: fresh.length - pruned.length,
+      tokens_reclaimed: tokensReclaimed,
+      scores,
+    });
+  };
+
   return {
     verdict: (id) => verdictMap.get(id),
     verdicts: () => verdictMap,
     pending: () => pendingJudge,
+    refreshAppliedSet,
+    applyPrunes: (messages) => applyPruneSet(messages, appliedPruneIds),
+    appliedIds: () => appliedPruneIds,
     onAgentSettled(entries) {
       if (deps.apiKey === null) return Promise.resolve(); // absent mode
       const run = judge(entries).catch((error) => {
@@ -2305,10 +2463,28 @@ export function createJevContextExtension(
         toolRouter === null
           ? Promise.resolve()
           : toolRouter.onBeforeAgentStart({ digest }),
+        // The prune applied set refreshes at the same boundary, after any
+        // in-flight judge pass from the settle completes (§3.4).
+        pruner === null ? Promise.resolve() : pruner.refreshAppliedSet(),
       ]);
     },
     onContext(event) {
-      return router === null ? {} : router.onContext(event);
+      const pruned =
+        pruner === null ? event.messages : pruner.applyPrunes(event.messages);
+      const base =
+        router === null
+          ? {}
+          : router.onContext(
+              pruned === event.messages
+                ? event
+                : { ...event, messages: pruned },
+            );
+      // The skill router returns {} when it has no injection; that must not
+      // drop the prune surgery from the result.
+      if (base.messages === undefined && pruned !== event.messages) {
+        return { messages: pruned };
+      }
+      return base;
     },
     onAgentSettled(_event, ctx) {
       router?.onAgentSettled();

@@ -8,6 +8,7 @@
  * satisfy Pi runtime types use a documented `as unknown as` double cast.
  */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -29,6 +30,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import jevContext, {
+  applyPruneSet,
   buildPruneJudgeInstructions,
   buildSessionDigest,
   buildSkillInjection,
@@ -50,6 +52,7 @@ import jevContext, {
   type JevScoreRequest,
   loadConfig,
   type NamespaceScoreRequest,
+  type PruneEpochRecord,
   type PruneJudgeRequest,
   pruneQuestionKey,
   renderPruneState,
@@ -2193,4 +2196,255 @@ test("wiring: agent_settled captures the session branch, judges its pairs once, 
   assert.equal(judged[0].ts, 1000);
   // renderSkillStats tolerates the new record type.
   assert.ok(renderSkillStats(file).includes("route decisions: 0"));
+});
+
+// ============================ Nozzle 3 — prune application + invariants (M2)
+
+// ------------------------------------------------------------- helpers
+
+/** Conversation copy carrying two pairs with thinking/text around them. */
+function pairMessages(): AgentMessage[] {
+  return [
+    userMessage("find and read"),
+    assistantMessage([
+      { type: "thinking", thinking: "THINK-1" },
+      toolCallPart("tc-1", "grep", { pattern: "port" }),
+      { type: "text", text: "TEXT-1" },
+      toolCallPart("tc-2", "read", { path: "/x" }),
+    ]),
+    toolResultMessage("tc-1", "grep", "GREP-HITS"),
+    toolResultMessage("tc-2", "read", "CONFIG-BODY"),
+    assistantMessage([{ type: "text", text: "done" }]),
+  ];
+}
+
+// ------------------------------------------------------------- §5 scenarios
+
+test("Given a prune verdict, when the next `context` event fires, then the call/result pair is removed from the copy and all thinking/text parts of those messages remain", async () => {
+  const { pruner } = makePruner(fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }));
+  await pruner.onAgentSettled(epochEntries());
+  await pruner.refreshAppliedSet();
+  const out = pruner.applyPrunes(pairMessages());
+  // The pruned pair's toolResult is gone; the kept pair's result stays.
+  const results = out.filter((m) => m.role === "toolResult");
+  assert.deepEqual(
+    results.map((m) => m.toolCallId),
+    ["tc-2"],
+  );
+  // The assistant message that carried tc-1 keeps its thinking/text parts.
+  const first = out[1];
+  assert.ok(first.role === "assistant");
+  assert.deepEqual(
+    first.content.map((p) => p.type),
+    ["thinking", "text", "toolCall"],
+  );
+  assert.ok(
+    !first.content.some((p) => p.type === "toolCall" && p.id === "tc-1"),
+  );
+  assert.ok(
+    first.content.some(
+      (p) => p.type === "thinking" && p.thinking === "THINK-1",
+    ),
+  );
+  assert.ok(
+    first.content.some((p) => p.type === "text" && p.text === "TEXT-1"),
+  );
+});
+
+test("Given any prune, then the on-disk session file is byte-identical before and after", async () => {
+  const home = makeTmpDir();
+  const sessionFile = join(home, "session.jsonl");
+  writeFileSync(
+    sessionFile,
+    `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-09-18T00:00:00Z", cwd: "/tmp" })}\n${JSON.stringify({ type: "message", id: "e1", parentId: null, timestamp: "2026-09-18T00:00:01Z", message: { role: "user", content: "hi", timestamp: 1 } })}\n`,
+  );
+  const hashOf = (): string =>
+    createHash("sha256").update(readFileSync(sessionFile)).digest("hex");
+  const before = hashOf();
+  const handlers = createJevContextExtension({
+    homeDir: home,
+    env: { PI_TYPESAFE_JEV: "test-key" },
+    now: () => 1000,
+    log: () => {},
+    jevScore: async () => ({ score: 0.1, inputTokens: 1, latencyMs: 1 }),
+    jevPruneJudge: fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
+  });
+  const ctx = {
+    cwd: makeTmpDir(),
+    ui: { notify: () => {} },
+    sessionManager: { getBranch: () => epochEntries() },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  await handlers.onAgentSettled({ type: "agent_settled" }, ctx);
+  await handlers.onBeforeAgentStart(beforeStartEvent("next turn"), ctx);
+  const result = handlers.onContext(contextEvent(pairMessages()));
+  // A prune actually happened (otherwise the invariant proves nothing).
+  assert.ok(result.messages !== undefined);
+  assert.ok(
+    !result.messages.some(
+      (m) => m.role === "toolResult" && m.toolCallId === "tc-1",
+    ),
+  );
+  assert.equal(hashOf(), before);
+});
+
+// ------------------------------------------------------------- application
+
+test("prune threshold: helpful-score at or below 0.2 prunes, the middle band keeps", async () => {
+  const { pruner } = makePruner(fakePruneJudge({ "tc-1": 0.2, "tc-2": 0.21 }));
+  await pruner.onAgentSettled(epochEntries());
+  await pruner.refreshAppliedSet();
+  assert.deepEqual([...pruner.appliedIds()].sort(), ["tc-1"]);
+});
+
+test("the applied set is byte-stable within an epoch; new prunes apply only at the next boundary", async () => {
+  const { pruner } = makePruner(
+    fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9, "tc-3": 0.1 }),
+  );
+  const entries = epochEntries();
+  await pruner.onAgentSettled(entries);
+  await pruner.refreshAppliedSet(); // boundary: tc-1 applies
+  const before = pruner.applyPrunes(pairMessages());
+  // Epoch 2 settles; tc-3 is judged — but the applied set is frozen (§3.4).
+  const grown = [
+    ...entries,
+    messageEntry(userMessage("again")),
+    messageEntry(assistantMessage([toolCallPart("tc-3", "bash", {})])),
+    messageEntry(toolResultMessage("tc-3", "bash", "B3")),
+  ];
+  await pruner.onAgentSettled(grown);
+  const during = pruner.applyPrunes(pairMessages());
+  assert.equal(JSON.stringify(during), JSON.stringify(before));
+  assert.equal(pruner.verdict("tc-3")?.score, 0.1);
+  assert.ok(!pruner.appliedIds().has("tc-3"));
+  // The next boundary applies it.
+  await pruner.refreshAppliedSet();
+  assert.ok(pruner.appliedIds().has("tc-3"));
+  const withThree = [
+    ...pairMessages(),
+    assistantMessage([toolCallPart("tc-3", "bash", {})]),
+    toolResultMessage("tc-3", "bash", "B3"),
+  ];
+  const after = pruner.applyPrunes(withThree);
+  assert.ok(
+    !after.some((m) => m.role === "toolResult" && m.toolCallId === "tc-3"),
+  );
+});
+
+test("PRUNE_EPOCH: a boundary that applies new verdicts logs and records judged/pruned/kept/tokens_reclaimed/scores", async () => {
+  const { pruner, logs, telemetry } = makePruner(
+    fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
+  );
+  await pruner.onAgentSettled(epochEntries());
+  await pruner.refreshAppliedSet();
+  const line = logs.find((l) => l.startsWith("PRUNE_EPOCH:"));
+  assert.ok(line !== undefined);
+  assert.ok(line.includes("epoch=1"));
+  assert.ok(line.includes("judged=2"));
+  assert.ok(line.includes("pruned=1"));
+  assert.ok(line.includes("kept=1"));
+  const rec = telemetry.find(
+    (e): e is PruneEpochRecord => e.event === "PRUNE_EPOCH",
+  );
+  assert.ok(rec !== undefined);
+  assert.equal(rec.judged, 2);
+  assert.equal(rec.pruned, 1);
+  assert.equal(rec.kept, 1);
+  assert.deepEqual(rec.scores, { "tc-1": 0.1, "tc-2": 0.9 });
+  // tokens_reclaimed derives from the pruned output's bytes (estimate > 0).
+  assert.ok(rec.tokens_reclaimed > 0);
+  // A boundary with no new verdicts stays quiet.
+  const logCount = logs.length;
+  await pruner.refreshAppliedSet();
+  assert.equal(logs.length, logCount);
+});
+
+test("provider pairing invariant: after pair surgery, every remaining tool call has its result and every result its call", async () => {
+  const { pruner } = makePruner(fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }));
+  await pruner.onAgentSettled(epochEntries());
+  await pruner.refreshAppliedSet();
+  const out = pruner.applyPrunes(pairMessages());
+  const callIds = out.flatMap((m) =>
+    m.role === "assistant"
+      ? m.content.flatMap((p) => (p.type === "toolCall" ? [p.id] : []))
+      : [],
+  );
+  const resultIds = out.flatMap((m) =>
+    m.role === "toolResult" ? [m.toolCallId] : [],
+  );
+  assert.deepEqual(callIds.sort(), resultIds.sort());
+});
+
+test("an assistant message that carried only pruned tool calls leaves no empty husk", async () => {
+  const { pruner } = makePruner(fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.1 }));
+  await pruner.onAgentSettled(epochEntries());
+  await pruner.refreshAppliedSet();
+  const messages: AgentMessage[] = [
+    userMessage("go"),
+    assistantMessage([
+      toolCallPart("tc-1", "grep", {}),
+      toolCallPart("tc-2", "read", {}),
+    ]),
+    toolResultMessage("tc-1", "grep", "G"),
+    toolResultMessage("tc-2", "read", "R"),
+  ];
+  const out = pruner.applyPrunes(messages);
+  assert.deepEqual(
+    out.map((m) => m.role),
+    ["user"],
+  );
+});
+
+test("applyPruneSet returns the input reference when nothing is pruned (a no-op context stays a no-op)", () => {
+  const messages = pairMessages();
+  assert.equal(applyPruneSet(messages, new Set()), messages);
+  assert.equal(applyPruneSet(messages, new Set(["tc-nope"])), messages);
+});
+
+test("context composition: skill injection stays at position 0 while pruned pairs are removed from the conversation copy", async () => {
+  const home = makeTmpDir();
+  mkdirSync(join(home, ".pi", "agent", "skills", "demo"), { recursive: true });
+  writeFileSync(
+    join(home, ".pi", "agent", "skills", "demo", "SKILL.md"),
+    "DEMO-BODY",
+  );
+  const handlers = createJevContextExtension({
+    homeDir: home,
+    env: { PI_TYPESAFE_JEV: "test-key" },
+    now: () => 1000,
+    log: () => {},
+    jevScore: async () => ({ score: 0.9, inputTokens: 1, latencyMs: 1 }),
+    jevPruneJudge: fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
+  });
+  const ctx = {
+    cwd: makeTmpDir(),
+    ui: { notify: () => {} },
+    sessionManager: { getBranch: () => epochEntries() },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  await handlers.onAgentSettled({ type: "agent_settled" }, ctx);
+  await handlers.onBeforeAgentStart(beforeStartEvent("route"), ctx);
+  const out = handlers.onContext(contextEvent(pairMessages()));
+  const messages = out.messages;
+  assert.ok(messages !== undefined);
+  const injected = messages[0];
+  assert.ok(
+    injected.role === "user" &&
+      typeof injected.content === "string" &&
+      injected.content.includes("DEMO-BODY"),
+  );
+  assert.ok(
+    !messages.some((m) => m.role === "toolResult" && m.toolCallId === "tc-1"),
+  );
+  assert.ok(
+    messages.some((m) => m.role === "toolResult" && m.toolCallId === "tc-2"),
+  );
+  // PRUNE_EPOCH also lands in the telemetry JSONL; skill_stats tolerates it.
+  const file = join(home, ".pi", "agent", "jev-context-telemetry.jsonl");
+  const events = readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => asRec(JSON.parse(l)).event);
+  assert.ok(events.includes("PRUNE_EPOCH"));
+  assert.ok(renderSkillStats(file).includes("route decisions: 1"));
 });
