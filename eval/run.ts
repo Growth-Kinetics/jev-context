@@ -5,7 +5,7 @@
 // PI_TYPESAFE_JEV or --key-file, hits the Jev endpoint through the injectable client, and
 // writes results into the recorded cache (scores only; the key is never logged or stored).
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadCatalog, type Catalog } from "./harness/catalog.ts";
 import { parseSession } from "./harness/session.ts";
@@ -112,7 +112,6 @@ async function main(): Promise<number> {
         : golden.filter((g) => baseline.some((b) => b.proj === g.proj));
   const corpusName =
     sessionPaths.length > 0 ? `paths:${sessionPaths.length}` : corpusArg === "all" ? "all" : "golden";
-
   // ---- scores: recorded table (fixture) or live client
   const recorded = new Map(baseline.map((b) => [b.proj, b.scores]));
   const cachePath = join(EVAL_DIR, "fixtures", "recorded-cache.json");
@@ -177,7 +176,7 @@ async function main(): Promise<number> {
   const results: SessionResult[] = [];
   for (const entry of corpus) {
     const session = parseSession(entry.path);
-    const skillsAvailable = recorded.has(entry.proj);
+    const skillsAvailable = live || recorded.has(entry.proj);
     const result = await simulate(session, {
       proj: entry.proj,
       catalog,
@@ -193,7 +192,8 @@ async function main(): Promise<number> {
   const labels: LabelMetrics = metrics;
   const doc = buildReport(corpusName, expected.threshold_policy, results, labels);
 
-  const base = corpusName === "all" ? "REPORT-ALL" : "REPORT";
+  const base = sessionPaths.length > 0 ? "REPORT-PATHS" : corpusName === "all" ? "REPORT-ALL" : "REPORT";
+  mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, `${base}.md`), reportMarkdown(doc));
   writeFileSync(join(outDir, `${base}.json`), reportJson(doc));
 
