@@ -1,5 +1,6 @@
 /**
- * Tests for the jev-context extension (M1-M3). §5 scenario titles are mirrored
+ * Tests for the jev-context extension (Nozzle 1: spec 2026-09-18-001 M1-M3;
+ * Nozzle 2: spec 2026-09-18-002 M1-M2). §5 scenario titles are mirrored
  * verbatim from VERIFYING.md so "scenario exists ⇔ test exists" is diffable.
  * No network: the Jev client is exercised against a loopback fixture server
  * (§4), everything else through the injected JevScoreFn seam. Fakes that must
@@ -29,14 +30,19 @@ import type {
 import jevContext, {
   buildSessionDigest,
   buildSkillInjection,
+  CORE_TOOLS,
   createJevContextExtension,
+  createJevNamespaceScorer,
   createJevScorer,
   createSkillRouter,
+  createToolSurfaceRouter,
   type DigestEntry,
   defaultSkillRoots,
+  type JevNamespaceScoreFn,
   type JevScoreFn,
   type JevScoreRequest,
   loadConfig,
+  type NamespaceScoreRequest,
   renderSkillStats,
   resolveApiKey,
   type SkillEntry,
@@ -44,7 +50,10 @@ import jevContext, {
   type SkillRouterDeps,
   scanSkillCatalog,
   selectSkillsToLoad,
+  surfaceQuestionKey,
   type TelemetryEvent,
+  type ToolNamespaceConfig,
+  type ToolSurfaceRouterDeps,
 } from "./jev-context.ts";
 
 // ---------------------------------------------------------------- helpers
@@ -164,6 +173,7 @@ test("extension loads and registers on session_start, before_agent_start, contex
     "agent_settled",
     "before_agent_start",
     "context",
+    "message_end",
     "session_start",
   ]);
   assert.ok(commands.has("skill_stats"));
@@ -900,6 +910,17 @@ test("Given a telemetry log with recorded decisions, when `/skill_stats` runs, t
         input_tokens: 25,
       }),
       JSON.stringify({ event: "SKILL_PINNED", ts: 4, epoch: 3, skill: "c" }),
+      // Nozzle-2 records coexist: skill aggregates ignore them (§3.9).
+      JSON.stringify({
+        event: "TOOL_SURFACE",
+        ts: 5,
+        epoch: 4,
+        active: ["browser"],
+        forced: [],
+        scores: { browser: 0.9 },
+        latency_ms: 3,
+        input_tokens: 40,
+      }),
       "not json",
       "",
     ].join("\n"),
@@ -967,4 +988,726 @@ test("factory registers `skill_stats` and per-skill `skill:<name>` commands; a s
   await stats("", cmdCtx);
   assert.ok(notifications.some((m) => m.includes("loaded and pinned")));
   assert.ok(notifications.some((m) => m.includes("manual pins: 1")));
+});
+
+// ============================================ Nozzle 2 — tool surfacing (M1)
+
+/** Fake tool world: Pi's tool-set seams backed by a mutable array. */
+function makeToolWorld(names: string[]) {
+  const current = [...names];
+  const all = names.map((name) => ({
+    name,
+    description: `${name} description`,
+  }));
+  const sets: string[][] = [];
+  return {
+    current,
+    sets,
+    seams: {
+      getAllTools: () => all,
+      getActiveTools: () => [...current],
+      setActiveTools: (next: string[]) => {
+        sets.push(next);
+        current.length = 0;
+        current.push(...next);
+      },
+    },
+  };
+}
+
+function fakeNsScorer(scores: Record<string, number>): JevNamespaceScoreFn {
+  return async (req) => {
+    const out: Record<string, number | null> = {};
+    for (const ns of req.namespaces) out[ns.name] = scores[ns.name] ?? 0;
+    return { scores: out, inputTokens: 10, latencyMs: 1 };
+  };
+}
+
+function makeNsRouter(
+  namespaces: Record<string, ToolNamespaceConfig>,
+  jevNamespaceScore: JevNamespaceScoreFn,
+  world: ReturnType<typeof makeToolWorld>,
+  extra: Partial<ToolSurfaceRouterDeps> = {},
+) {
+  const logs: string[] = [];
+  const notifies: { message: string; type: string | undefined }[] = [];
+  const telemetry: TelemetryEvent[] = [];
+  const router = createToolSurfaceRouter({
+    namespaces,
+    coreTools: [...CORE_TOOLS],
+    threshold: 0.6,
+    apiKey: "test-key",
+    jevNamespaceScore,
+    ...world.seams,
+    notify: (message, type) => notifies.push({ message, type }),
+    log: (line) => logs.push(line),
+    recordTelemetry: (event) => telemetry.push(event),
+    now: () => 1000,
+    ...extra,
+  });
+  return { router, logs, notifies, telemetry };
+}
+
+// ------------------------------------------------------------- §5 scenarios
+
+test("Given the always-on core (read, write, edit, bash, grep, find, ls), then it is present in every LLM call regardless of Jev state", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task", "send_whatsapp"]);
+  let failing = false;
+  const scorer: JevNamespaceScoreFn = async (req) =>
+    failing
+      ? { scores: null, inputTokens: 0, latencyMs: 1, error: "unreachable" }
+      : fakeNsScorer({ browser: 0.1 })(req);
+  const { router } = makeNsRouter(
+    // Owner misconfiguration on purpose: the namespace lists a core tool.
+    // Routing must never remove the core even when the namespace routes off.
+    { browser: { tools: ["browser_task", "read"], prefix: undefined } },
+    scorer,
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" }); // browser routed off
+  assert.ok(!world.current.includes("browser_task"));
+  for (const core of CORE_TOOLS) assert.ok(world.current.includes(core));
+  failing = true; // Jev down: fail-static restore, core untouched
+  await router.onBeforeAgentStart({ digest: "d2" });
+  assert.ok(world.current.includes("browser_task"));
+  for (const core of CORE_TOOLS) assert.ok(world.current.includes(core));
+});
+
+test("Given a turn whose digest scores a tool namespace ≥ threshold, when the `context` event fires, then that namespace's schemas are included; below threshold, they are absent", async () => {
+  const world = makeToolWorld([
+    ...CORE_TOOLS,
+    "browser_task",
+    "browser_open",
+    "tavily_search",
+  ]);
+  let browserScore = 0.9;
+  const scorer: JevNamespaceScoreFn = async () => ({
+    scores: { browser: browserScore, tavily: 0.2 },
+    inputTokens: 5,
+    latencyMs: 1,
+  });
+  const { router, logs } = makeNsRouter(
+    {
+      browser: { tools: [], prefix: "browser_" },
+      tavily: { tools: ["tavily_search"], prefix: undefined },
+    },
+    scorer,
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" });
+  // browser ≥ 0.6: both prefix-resolved tools enter the set; tavily < 0.6:
+  // its tool leaves the set it started in (Pi default = all visible).
+  assert.ok(world.current.includes("browser_task"));
+  assert.ok(world.current.includes("browser_open"));
+  assert.ok(!world.current.includes("tavily_search"));
+  assert.deepEqual(router.activeNamespaces(), ["browser"]);
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith(
+        "TOOL_SURFACE: epoch=1 active=[browser] scores={browser:0.9,tavily:0.2}",
+      ),
+    ),
+  );
+  // Next boundary: browser drops below threshold and leaves at the boundary.
+  browserScore = 0.2;
+  await router.onBeforeAgentStart({ digest: "d2" });
+  assert.ok(!world.current.includes("browser_task"));
+  assert.ok(!world.current.includes("browser_open"));
+  assert.deepEqual(router.activeNamespaces(), []);
+});
+
+test("one batched Jev request per epoch carries one noul per configured namespace over the digest shared with skill routing", async () => {
+  const home = makeTmpDir();
+  mkdirSync(join(home, ".pi", "agent", "skills", "demo"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(home, ".pi", "agent", "skills", "demo", "SKILL.md"),
+    "DEMO-BODY",
+  );
+  const cwd = makeTmpDir();
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(
+    join(cwd, ".pi", "jev-context.json"),
+    JSON.stringify({
+      toolNamespaces: {
+        browser: { prefix: "browser_" },
+        goal: { tools: ["goal_advance"] },
+      },
+    }),
+  );
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task", "goal_advance"]);
+  const skillStates: string[] = [];
+  const nsRequests: NamespaceScoreRequest[] = [];
+  const handlers = createJevContextExtension({
+    homeDir: home,
+    env: { PI_TYPESAFE_JEV: "test-key" },
+    now: () => 1000,
+    log: () => {},
+    jevScore: async (req) => {
+      skillStates.push(req.state);
+      return { score: 0.1, inputTokens: 1, latencyMs: 1 };
+    },
+    jevNamespaceScore: async (req) => {
+      nsRequests.push(req);
+      return {
+        scores: { browser: 0.9, goal: 0.1 },
+        inputTokens: 5,
+        latencyMs: 1,
+      };
+    },
+    tools: world.seams,
+  });
+  const ctx = {
+    cwd,
+    ui: { notify: () => {} },
+    sessionManager: {
+      getBranch: () => [messageEntry(userMessage("earlier turn"))],
+    },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  await handlers.onBeforeAgentStart(beforeStartEvent("now prompt"), ctx);
+  // One boundary -> exactly one batched namespace request, both namespaces in it.
+  assert.equal(nsRequests.length, 1);
+  assert.deepEqual(
+    nsRequests[0].namespaces.map((n) => n.name),
+    ["browser", "goal"],
+  );
+  // The digest is built once per boundary and shared verbatim with Nozzle 1.
+  const expectedDigest = "[user] earlier turn\n[user] now prompt\n";
+  assert.equal(nsRequests[0].state, expectedDigest);
+  assert.deepEqual(skillStates, [expectedDigest]);
+  assert.ok(nsRequests[0].namespaces[0].descriptions.includes("browser_task"));
+  // Boundary-applied surfacing: browser on (0.9), goal off (0.1).
+  assert.ok(world.current.includes("browser_task"));
+  assert.ok(!world.current.includes("goal_advance"));
+});
+
+// ------------------------------------------------------------- client
+
+test("batched namespace client POSTs one request with one noul per namespace and parses per-namespace scores", async (t) => {
+  const captured: { auth?: string; body?: string } = {};
+  const server = createServer((req, res) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+    });
+    req.on("end", () => {
+      captured.auth = req.headers.authorization;
+      captured.body = data;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          answers: {
+            surface_browser: { noul: 0.77 },
+            surface_goal: { noul: 0.12 },
+          },
+          usage: { input_tokens: 432 },
+        }),
+      );
+    });
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address === "object");
+  const scorer = createJevNamespaceScorer({
+    endpoint: `http://127.0.0.1:${address.port}/v1/systemone`,
+    model: "jev-latest",
+    apiKey: "test-key",
+    timeoutMs: 5000,
+  });
+  const result = await scorer({
+    state: "DIGEST-STATE",
+    namespaces: [
+      { name: "browser", descriptions: "browser_task: drives Chrome" },
+      { name: "goal", descriptions: "goal_advance: marks items done" },
+    ],
+  });
+  assert.deepEqual(result.scores, { browser: 0.77, goal: 0.12 });
+  assert.equal(result.inputTokens, 432);
+  assert.equal(captured.auth, "Bearer test-key");
+  assert.ok(captured.body !== undefined);
+  const payload = asRec(JSON.parse(captured.body));
+  assert.equal(payload.state, "DIGEST-STATE");
+  assert.deepEqual(Object.keys(asRec(payload.questions)).sort(), [
+    "surface_browser",
+    "surface_goal",
+  ]);
+  const browserQ = asRec(asRec(payload.questions).surface_browser);
+  assert.equal(browserQ.type, "noul");
+  assert.ok(typeof asRec(browserQ.criteria).true === "string");
+  const instructions = browserQ.instructions;
+  assert.ok(typeof instructions === "string");
+  assert.ok(instructions.includes("'browser'"));
+  assert.ok(instructions.includes("browser_task: drives Chrome"));
+  assert.ok(surfaceQuestionKey("browser") === "surface_browser");
+});
+
+test("batched namespace client maps HTTP errors, malformed bodies, and timeouts to scores=null results", async (t) => {
+  const server = createServer((req, res) => {
+    if (req.url === "/hang") return; // never respond
+    if (req.url === "/e500") {
+      res.writeHead(500);
+      res.end("boom");
+      return;
+    }
+    if (req.url === "/e429") {
+      res.writeHead(429);
+      res.end("busy");
+      return;
+    }
+    if (req.url === "/partial") {
+      // One namespace answer missing: per-namespace null, not whole-failure.
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ answers: { surface_a: { noul: 0.5 } } }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end("this is not json");
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  const req: NamespaceScoreRequest = {
+    state: "",
+    namespaces: [
+      { name: "a", descriptions: "a: x" },
+      { name: "b", descriptions: "b: y" },
+    ],
+  };
+  const scorerFor = (path: string, timeoutMs = 5000) =>
+    createJevNamespaceScorer({
+      endpoint: `${base}${path}`,
+      model: "m",
+      apiKey: "k",
+      timeoutMs,
+    });
+  const r500 = await scorerFor("/e500")(req);
+  assert.equal(r500.scores, null);
+  assert.equal(r500.error, "http_500");
+  const r429 = await scorerFor("/e429")(req);
+  assert.equal(r429.scores, null);
+  assert.equal(r429.error, "http_429");
+  const rBad = await scorerFor("/bad")(req);
+  assert.equal(rBad.scores, null);
+  assert.equal(rBad.error, "bad_response");
+  const rTimeout = await scorerFor("/hang", 50)(req);
+  assert.equal(rTimeout.scores, null);
+  assert.equal(rTimeout.error, "timeout");
+  const rPartial = await scorerFor("/partial")(req);
+  assert.deepEqual(rPartial.scores, { a: 0.5, b: null });
+});
+
+// ------------------------------------------------------- config and policy
+
+test("config parses toolNamespaces (tools + prefix), toolSurfaceThreshold, and extends the core floor", () => {
+  const home = makeTmpDir();
+  const project = makeTmpDir();
+  const userConfigPath = join(home, "jev-context.json");
+  const projectConfigPath = join(project, "jev-context.json");
+  writeFileSync(
+    userConfigPath,
+    JSON.stringify({
+      toolNamespaces: {
+        browser: { prefix: "browser_" },
+        goal: { tools: ["goal_advance", "goal_park"] },
+        broken: { tools: [] },
+      },
+      toolSurfaceThreshold: 0.5,
+      coreTools: ["powershell", "read"],
+    }),
+  );
+  writeFileSync(
+    projectConfigPath,
+    JSON.stringify({ toolNamespaces: { pins: { tools: ["pin_set"] } } }),
+  );
+  const { config, warnings } = loadConfig({
+    userConfigPath,
+    projectConfigPath,
+    homeDir: home,
+    cwd: project,
+  });
+  // Project layer replaces the namespace map wholesale (same merge semantics
+  // as every other config field).
+  assert.deepEqual(config.toolNamespaces, {
+    pins: { tools: ["pin_set"], prefix: undefined },
+  });
+  assert.equal(config.toolSurfaceThreshold, 0.5);
+  // Owner coreTools extend the hardcoded floor; `read` deduped.
+  for (const core of CORE_TOOLS) assert.ok(config.coreTools.includes(core));
+  assert.ok(config.coreTools.includes("powershell"));
+  assert.equal(config.coreTools.filter((t) => t === "read").length, 1);
+  assert.ok(warnings.some((w) => w.includes("toolNamespaces.broken")));
+});
+
+test("namespace resolution intersects explicit tools with available tools, matches prefixes, and logs unknown names once", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task", "tavily_search"]);
+  const { router, logs } = makeNsRouter(
+    {
+      web: { tools: ["browser_task", "nonexistent_tool"], prefix: "tavily_" },
+    },
+    fakeNsScorer({ web: 0.9 }),
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" });
+  await router.onBeforeAgentStart({ digest: "d2" });
+  const configLogs = logs.filter((l) => l.startsWith("TOOL_SURFACE_CONFIG:"));
+  assert.deepEqual(configLogs, [
+    "TOOL_SURFACE_CONFIG: namespace=web unknown_tool=nonexistent_tool",
+  ]); // once per session, not per boundary
+  // Explicit + prefix union resolved; unknown name never enters the set.
+  assert.ok(world.current.includes("browser_task"));
+  assert.ok(world.current.includes("tavily_search"));
+  assert.ok(!world.current.includes("nonexistent_tool"));
+});
+
+test("batch scoring failure restores every configured namespace to visible (fail-static) and logs ROUTE_DEGRADED", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "tavily_search", "tavily_map"]);
+  let failing = false;
+  const scorer: JevNamespaceScoreFn = async (req) =>
+    failing
+      ? { scores: null, inputTokens: 0, latencyMs: 1, error: "http_500" }
+      : fakeNsScorer({ tavily: 0.1 })(req);
+  const { router, logs, notifies } = makeNsRouter(
+    { tavily: { tools: [], prefix: "tavily_" } },
+    scorer,
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" }); // tavily routed off
+  assert.ok(!world.current.includes("tavily_search"));
+  failing = true;
+  await router.onBeforeAgentStart({ digest: "d2" }); // Jev down: restore all
+  assert.ok(world.current.includes("tavily_search"));
+  assert.ok(world.current.includes("tavily_map"));
+  assert.equal(notifies.length, 1);
+  assert.equal(notifies[0].type, "warning");
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith("ROUTE_DEGRADED: reason=http_500 nozzle=tools"),
+    ),
+  );
+  await router.onBeforeAgentStart({ digest: "d3" }); // still down
+  assert.equal(notifies.length, 1); // once per error class
+  assert.equal(
+    logs.filter((l) => l.startsWith("ROUTE_DEGRADED:")).length,
+    2, // logged every time
+  );
+});
+
+test("unchanged routing produces no setActiveTools call; unconfigured tools are never touched", async () => {
+  const world = makeToolWorld([
+    ...CORE_TOOLS,
+    "browser_task",
+    "heavy_think", // not in any namespace: Pi default, untouched by routing
+  ]);
+  const { router } = makeNsRouter(
+    { browser: { tools: [], prefix: "browser_" } },
+    fakeNsScorer({ browser: 0.1 }),
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" }); // removes browser_task
+  assert.equal(world.sets.length, 1);
+  await router.onBeforeAgentStart({ digest: "d2" }); // identical outcome
+  assert.equal(world.sets.length, 1); // no-op suppressed
+  assert.ok(world.current.includes("heavy_think"));
+  assert.ok(!world.current.includes("browser_task"));
+});
+
+test("tool surfacing is inert without an API key and without configured namespaces", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task"]);
+  let calls = 0;
+  const scorer: JevNamespaceScoreFn = async () => {
+    calls += 1;
+    return { scores: {}, inputTokens: 0, latencyMs: 1 };
+  };
+  const noKey = makeNsRouter(
+    { browser: { tools: [], prefix: "browser_" } },
+    scorer,
+    world,
+    { apiKey: null },
+  );
+  await noKey.router.onBeforeAgentStart({ digest: "d" });
+  const noNamespaces = makeNsRouter({}, scorer, world);
+  await noNamespaces.router.onBeforeAgentStart({ digest: "d" });
+  assert.equal(calls, 0); // no Jev traffic
+  assert.equal(world.sets.length, 0); // Pi's default tool set untouched
+});
+
+test("namespace with a per-namespace parse gap stays visible (fail-static) while scored namespaces route normally", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task", "goal_advance"]);
+  const scorer: JevNamespaceScoreFn = async () => ({
+    scores: { browser: null, goal: 0.1 },
+    inputTokens: 5,
+    latencyMs: 1,
+  });
+  const { router, logs } = makeNsRouter(
+    {
+      browser: { tools: [], prefix: "browser_" },
+      goal: { tools: ["goal_advance"], prefix: undefined },
+    },
+    scorer,
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d" });
+  assert.ok(world.current.includes("browser_task")); // gap -> visible
+  assert.ok(!world.current.includes("goal_advance")); // scored low -> off
+  assert.deepEqual(router.activeNamespaces(), ["browser"]);
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith("ROUTE_DEGRADED: reason=bad_response nozzle=tools"),
+    ),
+  );
+});
+
+// ============================================ Nozzle 2 — degradation (M2)
+
+/** Pi's synthesized unknown-tool result (agent-loop createErrorToolResult). */
+function notFoundResult(toolName: string): AgentMessage {
+  return {
+    role: "toolResult",
+    toolCallId: `tc-${toolName}`,
+    toolName,
+    content: [{ type: "text", text: `Tool ${toolName} not found` }],
+    isError: true,
+    timestamp: 1,
+  };
+}
+
+test("Given Jev is down, then all namespaces behave as Pi default (fail-static), and a `ROUTE_DEGRADED` line is logged", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task", "tavily_search"]);
+  let down = false;
+  const scorer: JevNamespaceScoreFn = async (req) =>
+    down
+      ? { scores: null, inputTokens: 0, latencyMs: 1, error: "unreachable" }
+      : fakeNsScorer({ browser: 0.1, tavily: 0.1 })(req);
+  const { router, logs, notifies } = makeNsRouter(
+    {
+      browser: { tools: [], prefix: "browser_" },
+      tavily: { tools: [], prefix: "tavily_" },
+    },
+    scorer,
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" }); // both routed off
+  assert.ok(!world.current.includes("browser_task"));
+  assert.ok(!world.current.includes("tavily_search"));
+  down = true;
+  await router.onBeforeAgentStart({ digest: "d2" });
+  // Pi default = every namespace visible again.
+  assert.ok(world.current.includes("browser_task"));
+  assert.ok(world.current.includes("tavily_search"));
+  assert.deepEqual(router.activeNamespaces(), ["browser", "tavily"]);
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith("ROUTE_DEGRADED: reason=unreachable nozzle=tools"),
+    ),
+  );
+  assert.equal(notifies.length, 1); // one notify, error class unreachable
+});
+
+test("a single 429 freezes the current set without notifying; a repeated 429 fails static, restores all namespaces, and notifies once", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task", "tavily_search"]);
+  let mode: "score" | "429" = "score";
+  const scorer: JevNamespaceScoreFn = async (req) =>
+    mode === "429"
+      ? { scores: null, inputTokens: 0, latencyMs: 1, error: "http_429" }
+      : fakeNsScorer({ browser: 0.1, tavily: 0.9 })(req);
+  const { router, logs, notifies, telemetry } = makeNsRouter(
+    {
+      browser: { tools: [], prefix: "browser_" },
+      tavily: { tools: [], prefix: "tavily_" },
+    },
+    scorer,
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" }); // browser off, tavily on
+  assert.ok(!world.current.includes("browser_task"));
+  assert.ok(world.current.includes("tavily_search"));
+  mode = "429";
+  await router.onBeforeAgentStart({ digest: "d2" }); // first 429: freeze
+  assert.ok(!world.current.includes("browser_task")); // unchanged
+  assert.ok(world.current.includes("tavily_search")); // unchanged
+  assert.equal(notifies.length, 0); // transient: no user-facing notify
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith(
+        "ROUTE_DEGRADED: reason=http_429 nozzle=tools action=keep_current",
+      ),
+    ),
+  );
+  await router.onBeforeAgentStart({ digest: "d3" }); // repeated 429: fail static
+  assert.ok(world.current.includes("browser_task")); // restored
+  assert.equal(notifies.length, 1);
+  assert.equal(notifies[0].type, "warning");
+  // Telemetry marks both degraded epochs with the error class.
+  const degraded = telemetry.filter(
+    (e) => e.event === "TOOL_SURFACE" && e.degraded === "http_429",
+  );
+  assert.equal(degraded.length, 2);
+  mode = "score";
+  await router.onBeforeAgentStart({ digest: "d4" }); // success resets the counter
+  assert.ok(!world.current.includes("browser_task")); // routing resumes
+  mode = "429";
+  await router.onBeforeAgentStart({ digest: "d5" }); // single again: freeze
+  assert.ok(!world.current.includes("browser_task"));
+  assert.equal(notifies.length, 1); // still just the one notify
+});
+
+test("session_start restores every configured namespace to visible before the first boundary, with or without an API key", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task"]);
+  // Stale routing from a previous session: browser_task was surfaced off.
+  world.seams.setActiveTools([...CORE_TOOLS]);
+  assert.ok(!world.current.includes("browser_task"));
+  let calls = 0;
+  const scorer: JevNamespaceScoreFn = async () => {
+    calls += 1;
+    return { scores: { browser: 0.1 }, inputTokens: 1, latencyMs: 1 };
+  };
+  const namespaces = { browser: { tools: [], prefix: "browser_" } };
+  const withKey = makeNsRouter(namespaces, scorer, world);
+  withKey.router.onSessionStart();
+  assert.ok(world.current.includes("browser_task")); // baseline restored
+  assert.equal(calls, 0); // restore never scores
+  // Same fail-static baseline when the key is missing (§3.5, §5 cross-cutting).
+  world.seams.setActiveTools([...CORE_TOOLS]);
+  const noKey = makeNsRouter(namespaces, scorer, world, { apiKey: null });
+  noKey.router.onSessionStart();
+  assert.ok(world.current.includes("browser_task"));
+  assert.equal(calls, 0);
+});
+
+test("an unknown-tool error for a surfaced-off namespace force-surfaces it at the next boundary, logged as TOOL_SURFACE_MISS, for one epoch only", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task"]);
+  const { router, logs, telemetry } = makeNsRouter(
+    { browser: { tools: [], prefix: "browser_" } },
+    fakeNsScorer({ browser: 0.1 }), // below threshold every epoch
+    world,
+  );
+  await router.onBeforeAgentStart({ digest: "d1" }); // browser routed off
+  assert.ok(!world.current.includes("browser_task"));
+  // The model tries browser_task anyway; Pi answers with the synthesized
+  // unknown-tool error. Detection happens on message_end.
+  router.onMessageEnd(notFoundResult("browser_task"));
+  await router.onBeforeAgentStart({ digest: "d2" }); // miss recovery boundary
+  assert.ok(world.current.includes("browser_task")); // forced on despite 0.1
+  assert.deepEqual(router.activeNamespaces(), ["browser"]);
+  assert.ok(
+    logs.some((l) =>
+      l.startsWith(
+        "TOOL_SURFACE_MISS: namespace=browser tool=browser_task epoch=2",
+      ),
+    ),
+  );
+  assert.ok(
+    logs.some(
+      (l) =>
+        l.startsWith("TOOL_SURFACE: epoch=2 active=[browser]") &&
+        l.includes("forced=[browser]"),
+    ),
+  );
+  const rec = telemetry.find(
+    (e): e is Extract<TelemetryEvent, { event: "TOOL_SURFACE" }> =>
+      e.event === "TOOL_SURFACE" && e.epoch === 2,
+  );
+  assert.deepEqual(rec?.forced, ["browser"]);
+  // One-shot: the miss is consumed; scoring rules again at the next boundary.
+  await router.onBeforeAgentStart({ digest: "d3" });
+  assert.ok(!world.current.includes("browser_task"));
+  assert.deepEqual(router.activeNamespaces(), []);
+});
+
+test("unknown-tool errors for unconfigured tools log once and never force-surface; ordinary tool errors are ignored", async () => {
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task"]);
+  const { router, logs } = makeNsRouter(
+    { browser: { tools: [], prefix: "browser_" } },
+    fakeNsScorer({ browser: 0.9 }),
+    world,
+  );
+  // Ordinary execution error: not the unknown-tool shape, ignored.
+  router.onMessageEnd({
+    role: "toolResult",
+    toolCallId: "tc-1",
+    toolName: "bash",
+    content: [{ type: "text", text: "Tool bash not found in cache" }],
+    isError: true,
+    timestamp: 1,
+  });
+  router.onMessageEnd({
+    role: "toolResult",
+    toolCallId: "tc-2",
+    toolName: "bash",
+    content: [{ type: "text", text: "exit code 1" }],
+    isError: true,
+    timestamp: 2,
+  });
+  assert.deepEqual(logs, []);
+  // Unconfigured tool, exact unknown-tool shape: logged once, not recovered.
+  router.onMessageEnd(notFoundResult("mystery_tool"));
+  router.onMessageEnd(notFoundResult("mystery_tool"));
+  assert.deepEqual(logs, [
+    "TOOL_SURFACE_MISS: tool=mystery_tool namespace=unconfigured",
+  ]);
+  await router.onBeforeAgentStart({ digest: "d" });
+  assert.ok(logs.join("\n").includes("forced=[]")); // nothing forced
+  assert.ok(!world.current.includes("mystery_tool"));
+});
+
+test("wiring detects the miss on message_end, force-surfaces at the next boundary, and appends TOOL_SURFACE telemetry per epoch", async () => {
+  const home = makeTmpDir();
+  const cwd = makeTmpDir();
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(
+    join(cwd, ".pi", "jev-context.json"),
+    JSON.stringify({ toolNamespaces: { browser: { prefix: "browser_" } } }),
+  );
+  const world = makeToolWorld([...CORE_TOOLS, "browser_task"]);
+  const logs: string[] = [];
+  const handlers = createJevContextExtension({
+    homeDir: home,
+    env: { PI_TYPESAFE_JEV: "test-key" },
+    now: () => 1000,
+    log: (line) => logs.push(line),
+    jevNamespaceScore: fakeNsScorer({ browser: 0.1 }),
+    tools: world.seams,
+  });
+  const ctx = {
+    cwd,
+    ui: { notify: () => {} },
+    sessionManager: { getBranch: () => [] },
+  } as unknown as ExtensionContext;
+  handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+  await handlers.onBeforeAgentStart(beforeStartEvent("one"), ctx);
+  assert.ok(!world.current.includes("browser_task")); // routed off
+  handlers.onMessageEnd({
+    type: "message_end",
+    message: notFoundResult("browser_task"),
+  });
+  await handlers.onBeforeAgentStart(beforeStartEvent("two"), ctx);
+  assert.ok(world.current.includes("browser_task")); // recovered
+  // Telemetry JSONL: one TOOL_SURFACE record per boundary, miss marked forced.
+  const file = join(home, ".pi", "agent", "jev-context-telemetry.jsonl");
+  const records = readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => asRec(JSON.parse(l)));
+  const surfaces = records.filter((r) => r.event === "TOOL_SURFACE");
+  assert.equal(surfaces.length, 2);
+  assert.equal(surfaces[0].epoch, 1);
+  assert.deepEqual(surfaces[0].active, []);
+  assert.deepEqual(surfaces[0].forced, []);
+  assert.deepEqual(surfaces[0].scores, { browser: 0.1 });
+  assert.equal(surfaces[0].input_tokens, 10);
+  assert.equal(surfaces[0].latency_ms, 0);
+  assert.equal(surfaces[0].ts, 1000);
+  assert.deepEqual(surfaces[1].active, ["browser"]);
+  assert.deepEqual(surfaces[1].forced, ["browser"]);
 });

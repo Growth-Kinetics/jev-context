@@ -1,5 +1,44 @@
 # TIMELINE — jev-context
 
+## 2026-09-18 — tools item (GOAL_2026-09-18-001/tools, SESSION_SPEC_2026-09-18-002)
+
+Executed directly (no heavy_think per orchestrator directive). Both milestones verified;
+branch `feat/goal-2026-09-18-001-tools`, PR #4. Commits: a1e55b1 (M1 namespace surfacing
+core), 85dbb6c (M2 degradation + escape hatch + telemetry). 80/80 node:test cases, all
+gates green (biome / tsgo / pinned-deps / eval).
+
+Delivered: owner-configured tool namespaces (`tools` list ∪ `prefix`, zero shipped
+opinions), hardcoded always-on core force-kept even against owner misconfiguration, one
+batched Jev request per epoch (one noul per namespace, descriptions-only payloads) over
+the digest shared with Nozzle 1, boundary-only `setActiveTools` with no-op suppression,
+fail-static restore-all (session_start baseline + repeated-429 trigger), unknown-tool
+escape hatch (message_end exact-match → one-shot forced surfacing, `TOOL_SURFACE_MISS`),
+`TOOL_SURFACE` JSONL telemetry per epoch.
+
+- Pi exposes tool-set control as `pi.getAllTools/getActiveTools/setActiveTools` on
+  ExtensionAPI (not ExtensionContext). Injected as `deps.tools`; when the seam is absent
+  Nozzle 1 behavior is byte-identical — the same factory serves both nozzle configs.
+- Pi's unknown-tool path never executes: agent-loop synthesizes `Tool <name> not found`
+  as an immediate isError toolResult, and `message_end` fires for it. Exact-equality
+  text match plus the `toolName` field — no regex, ordinary tool errors cannot
+  false-positive.
+- Digest sharing pattern: the wiring builds the digest once per `before_agent_start` and
+  passes it into both routers (optional `digest` param on the skill router input);
+  routers keep independent epoch counters that stay in lockstep because they increment on
+  identical preconditions.
+- Fail-static baseline belongs at `session_start`, not at the first boundary: reload can
+  inherit a mutated tool set; restoring at start is a no-op on fresh sessions and
+  self-healing on reload. It is also the key-missing fail-static path (§3.5).
+- 429 policy: single freezes the set (`action=keep_current`, no notify), 2nd consecutive
+  fails static (restore-all + notify once per class), success resets the counter. Forced
+  misses apply on EVERY failure path — visibility-first, recovery never waits for a
+  healthy Jev.
+- biome `noAssignInExpressions` rejects `(obj[k] ??= []).push(x)`; expand to statements.
+- tsgo 7.0-dev narrowed a `.some` callback param to `never` after an earlier
+  `assert.deepEqual(logs, [...])`; `logs.join("\n").includes(...)` sidesteps it.
+- Meta: the `edit` tool fails a multi-edit batch atomically on one ambiguous `oldText`;
+  re-issue the survivors after disambiguating and grep to confirm what landed.
+
 ## 2026-09-18 — bench item (GOAL_2026-09-18-001/bench, SESSION_SPEC_2026-09-18-004)
 
 Executed directly (no heavy_think per orchestrator directive). Both milestones verified;
