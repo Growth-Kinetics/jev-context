@@ -97,6 +97,17 @@ prose here as the reviewable contract and mirror each scenario as a `node:test` 
 - Given an active skill whose decay re-check scores < 0.25 at the K-th user turn since load,
   then it leaves the injection set at the next boundary.
 - Given a manual `/skill:name` invocation, then that skill is active and pinned against decay.
+- Given an active skill set, when the `context` event fires, then skill bodies are injected at a
+  fixed position immediately after the system prompt and prior messages keep their order.
+- Given an `agent_settled` boundary, when the next epoch's first `context` event fires, then the
+  injection is rebuilt and remains at the fixed position.
+- Given Jev is unreachable or errors during scoring, when the epoch starts, then the extension
+  notifies once per error class, logs `ROUTE_DEGRADED`, and keeps the current skill set
+  (fail-static).
+- Given a completed scoring pass, when the pass ends, then a `ROUTE_DECISION` record is appended
+  to the telemetry JSONL with scores, loaded, skipped_active, evicted, latency, and tokens.
+- Given a telemetry log with recorded decisions, when `/skill_stats` runs, then it renders
+  aggregates: passes, loads, evictions, per-skill hit counts, and tokens spent.
 
 ### Nozzle 2 — tool surfacing
 - Given the always-on core (read, write, edit, bash, grep, find, ls), then it is present in
