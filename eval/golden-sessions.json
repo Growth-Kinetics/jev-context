@@ -1,0 +1,530 @@
+[
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data--/2026-06-26T16-07-01-648Z_019f04af-3f10-71c7-b802-689d1ffad3f7.jsonl",
+  "proj": "data",
+  "size_kb": 5655,
+  "first_user": "in /content/alex you have my CV and in /diffmem/personal you have my entire memory system, please use your browserless skill to apply for this job for me: https://jobs.ashbyhq.com/hopper/0fe04838-11a0-45f5-81a7-dc1e10cf61ff/application?utm_source=LinkedIn_Job_Wrapping"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-content-Research--/2026-07-23T01-22-51-298Z_019f8c91-7722-7956-99f3-26326bf8efbc.jsonl",
+  "proj": "data-content-Research",
+  "size_kb": 1130,
+  "first_user": "Hey KD! Help the think through something and help me figure out the math of this.   I have an agent that i need to evaluate their outpout, but it is a conversational agent for mental health support, so there really is not quantifiable way to build a verifier, i need to have an LL"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-contracts_mcd_marketing--/2026-08-20T01-46-51-544Z_01a01cd9-8118-718b-98f0-ba24ecda820c.jsonl",
+  "proj": "data-contracts-contracts_mcd_marketing",
+  "size_kb": 3089,
+  "first_user": "Hello! I need your help navigating some japanese corporate politics in the nature of our contract renewal for growth kinetics, before we do that i need you to orient yourself by exploring my memory. I have an external memory system for me that contains rich data stored as markdow"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-contracts_mcd_marketing-analysis_projects--/2026-07-21T02-40-51-244Z_019f828c-282c-7b22-afe5-ef98f7d8d565.jsonl",
+  "proj": "data-contracts-contracts_mcd_marketing-analysis_projects",
+  "size_kb": 1812,
+  "first_user": "Hello, you are authenticated with gcloud CLI with alex@growth-kinetics.com, i need an analysis on GCP costs on the mcd-japan-analytics-prod project, can you help me figure out why costs have increased so much between July 2025 and July 2026?"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-contracts_mcd_marketing-analysis_projects-202606_coupon_performance--/2026-06-18T06-18-03-981Z_019ed961-294d-7831-9363-7328aea29439.jsonl",
+  "proj": "data-contracts-contracts_mcd_marketing-analysis_projects-202606_coupon_performance",
+  "size_kb": 1827,
+  "first_user": "please read all md files on this folder to orient yourself"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-contracts_mcd_marketing-analysis_projects-arpu_appu--/2026-07-10T02-32-36-579Z_019f49de-a7e3-7a93-a109-e57c0ed5d9c2.jsonl",
+  "proj": "data-contracts-contracts_mcd_marketing-analysis_projects-arpu_appu",
+  "size_kb": 5709,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-contracts_mcd_marketing-analysis_projects-hm_customers--/2026-06-29T05-31-43-569Z_019f11dc-b051-7436-a2e3-4e12b5284d2f.jsonl",
+  "proj": "data-contracts-contracts_mcd_marketing-analysis_projects-hm_customers",
+  "size_kb": 1402,
+  "first_user": "Hello! the VP of Digital has just asked us: \"I'd like to understand the average customer spending of customers who use Happy Meal coupons versus those who don't. Have you ever created anything like this in the past?  I'd like to create something like this, so please let me know i"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-contracts_mcd_marketing-trending_now--/2026-06-04T05-20-35-572Z_019e9113-82f4-7abd-b638-13ad88280644.jsonl",
+  "proj": "data-contracts-contracts_mcd_marketing-trending_now",
+  "size_kb": 532,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-contracts-gyg--/2026-08-30T01-07-21-414Z_01a05034-eec6-7d95-83b0-46eaeb2ffbce.jsonl",
+  "proj": "data-contracts-gyg",
+  "size_kb": 4445,
+  "first_user": "You are building the workshop materials for a client session that runs Monday. Nova (chief of staff, pane w1A:p1) is delegating and will review before the client's partner sees it at 09:00 Sunday. Alex is asleep and will not answer questions; bring ambiguities to Nova instead.  S"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-diffmem--/2026-07-22T06-15-40-941Z_019f8877-328d-78fd-b6bf-22f37b0549c6.jsonl",
+  "proj": "data-diffmem",
+  "size_kb": 521,
+  "first_user": "Hello! in this repo there are two memory projects, one is a corporate memory for growth-kinetics, the other is my personal memory. I need you to perform a round of research and come back with a comprehensive report you would provide as context to an AI SDR that is doing linkedin "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-diffmem-growth-kinetics-worktrees-growth-kinetics--/2026-06-07T11-21-56-905Z_019ea1d1-6ba9-7d96-9616-332daa7f09c1.jsonl",
+  "proj": "data-diffmem-growth-kinetics-worktrees-growth-kinetics",
+  "size_kb": 3623,
+  "first_user": "Hello, i would like you to assume the role of \"Travis\", here is his persona card, for the rest of the conversation please role play as effectively as possible: I'm Travis.   I grew up in the Chicago suburbs in the late 80s and 90s. The defining feature of my childhood was the abs"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-diffmem-personal--/2026-06-10T01-15-10-455Z_019eaf18-faf7-76b8-89c0-f2be876f5e85.jsonl",
+  "proj": "data-diffmem-personal",
+  "size_kb": 1579,
+  "first_user": "Hello, this repo contains markdown files with my personal memory over the past 10 months, you can git log for commit history, search files, blame within a file, diff accross time, and traverse accross links to understand and know everything there is to know about me, the files ar"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-personas-nova--/2026-08-28T02-07-00-244Z_01a0461e-d294-73e1-9870-6f00dce721c3.jsonl",
+  "proj": "data-personas-nova",
+  "size_kb": 1400,
+  "first_user": "Hi Nova!"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-personas-omnara--/2026-08-30T18-40-24-069Z_01a053f9-0605-7ae8-b438-bbabfed6d52f.jsonl",
+  "proj": "data-personas-omnara",
+  "size_kb": 986,
+  "first_user": "Hello Omnara! Today we want to do OSINT on https://www.instagram.com/dave_armero/ his work email is david.armero@mascamarena.es his full legal name is DAVID ARMERO JIMENEZ he lives in Valencia and teaches at Mas Camarena School. You have a peopledatalabs API Key you can use: 5fb1"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-AnnabelllesRoom--/2026-06-24T05-34-11-943Z_019ef81f-27e7-7eb8-b365-60574972ca10.jsonl",
+  "proj": "data-projects-AnnabelllesRoom",
+  "size_kb": 1655,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-DiffMem--/2026-06-21T17-57-18-402Z_019eeb54-69c2-77c8-b4c0-e0210a82ffce.jsonl",
+  "proj": "data-projects-DiffMem",
+  "size_kb": 907,
+  "first_user": "Can you download and read this pdf and within the context of this project tell me if there\u2019s any valuable learnings for us ? https://arxiv.org/pdf/2606.19847"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-agon--/2026-06-04T04-50-20-147Z_019e90f7-cf73-7173-9cea-da509d87a29d.jsonl",
+  "proj": "data-projects-agon",
+  "size_kb": 999,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-ai-product-master--/2026-06-02T04-04-11-868Z_019e8680-d9dc-7a6a-9dd8-93b8cce09f4a.jsonl",
+  "proj": "data-projects-ai-product-master",
+  "size_kb": 502,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-annabelle--/2026-06-25T04-29-25-746Z_019efd0a-3772-77b6-83cd-0e9b4bd5d67a.jsonl",
+  "proj": "data-projects-annabelle",
+  "size_kb": 922,
+  "first_user": "please perform an indepth code review on the current branch before we push, this is work for PR #72"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-annabelle-main--/2026-07-02T15-28-36-322Z_019f2372-39e2-70a3-8454-89284da8f193.jsonl",
+  "proj": "data-projects-annabelle-main",
+  "size_kb": 680,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-business--/2026-07-31T07-08-48-892Z_019fb701-137c-7d42-93f9-3f975fba728e.jsonl",
+  "proj": "data-projects-business",
+  "size_kb": 3072,
+  "first_user": "Hello! please onboard on what Finnrick is by reading this business repository"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-diffMem-platform--/2026-06-09T06-16-08-473Z_019eab06-2a19-7dd3-ada0-5552c6b46b20.jsonl",
+  "proj": "data-projects-diffMem-platform",
+  "size_kb": 1273,
+  "first_user": "Hello, this is your first run on this project, please review the files thoroughly and get a bearing of what this project is and how it works"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-diffmem-pro--/2026-08-21T10-27-44-706Z_01a023dc-bfc2-78df-a41a-ac32748763ad.jsonl",
+  "proj": "data-projects-diffmem-pro",
+  "size_kb": 5760,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-dinner_mate--/2026-07-24T22-42-03-623Z_goal-2026-07-24-001-item-5.jsonl",
+  "proj": "data-projects-dinner_mate",
+  "size_kb": 1954,
+  "first_user": "/onboard  Absorb the whole project \u2014 items 1-4 are verified and merged into the goal branch; you're standing on top of a complete functional app. End with ONBOARD_COMPLETE on its own line."
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-fastfitness--/2026-05-26T02-58-10-467Z_019e6237-e3a3-79ef-8085-3b2c73e2427e.jsonl",
+  "proj": "data-projects-fastfitness",
+  "size_kb": 1014,
+  "first_user": "Welcome to the project. To orient yourself, first read the contents of the README.md file and all .md files existing in the .pi/ folder of this project."
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-gk-pi--/2026-06-25T06-59-16-360Z_019efd93-6707-7e2d-a521-f084b8dc411d.jsonl",
+  "proj": "data-projects-gk-pi",
+  "size_kb": 1011,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-heavy-thinking--/2026-06-29T06-53-32-599Z_goal-2026-06-29-001-ht-28.jsonl",
+  "proj": "data-projects-heavy-thinking",
+  "size_kb": 736,
+  "first_user": "/onboard  You are working on heavy-thinking issue #28 (\"Default subagent thinkingLevel: minimal/low since heavy_think's architectural step already encodes the reasoning\"). Orient to /data/projects/heavy-thinking. Key files: extensions/heavy-think/subprocess.ts (runSubagent, Subpr"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-hypno--/2026-06-03T20-18-21-497Z_019e8f23-14b9-7b8a-bfc6-1a42beadd45a.jsonl",
+  "proj": "data-projects-hypno",
+  "size_kb": 2398,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-hypno_v2--/2026-06-09T03-46-58-245Z_019eaa7d-9845-7a63-8c54-47bf6a49b332.jsonl",
+  "proj": "data-projects-hypno_v2",
+  "size_kb": 831,
+  "first_user": "Hello! This is a completly new project, which an R&D effort into long-video generation using LTX-2 audio to video pipelines. Here is what i have in mind, in this repo you have an audio file, i am thinking instead of trying to force LTX into generating more than it can comfortable"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-hypno_v2-director--/2026-08-12T09-44-20-674Z_019ff55b-c7c2-734d-bc6f-3cd071a5d4ea.jsonl",
+  "proj": "data-projects-hypno_v2-director",
+  "size_kb": 3124,
+  "first_user": "onboard into this project by reading the instructions and the log for film 001"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-hypno_v2-z_image_workflow--/2026-06-12T01-25-26-222Z_019eb96f-184e-71fd-b37a-bdf75ca539b7.jsonl",
+  "proj": "data-projects-hypno_v2-z_image_workflow",
+  "size_kb": 1098,
+  "first_user": "I am doing an analysis of ComfyUI workflows for Z-image, specifically I want to use this \"ollie\" model that is present in the first couple of them. So I have extracted metadata of images I believe are really good. Your task is: Please evaluate all the below workflows, evaluate wh"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-ingester--/2026-08-21T10-01-09-311Z_01a023c4-67bf-7fed-8350-73e9c071dd57.jsonl",
+  "proj": "data-projects-ingester",
+  "size_kb": 4911,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-loqum_io--/2026-07-15T07-22-06-655Z_019f64a7-7fbf-7e15-80b3-34f03064f0d5.jsonl",
+  "proj": "data-projects-loqum_io",
+  "size_kb": 2444,
+  "first_user": "You are the implementation lead for the Loqum landing page. Work directly in /data/projects/loqum_io. I am the acquisition/positioning lead and will review your output in a browser, then give iterative feedback. Build the site; do not merely plan or describe it.  FIRST: Read BRIE"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-loqum_landing--/2026-09-09T02-03-00-270Z_01a083e7-792d-7370-b641-a2f7b708992d.jsonl",
+  "proj": "data-projects-loqum_landing",
+  "size_kb": 796,
+  "first_user": "Please read the HOSTS.md file for this box to orient yourself, then read the briefing file in /data/contracts/loqum to undersand the scope of the overall work you will be doing, once you have done that read the [herdr] skill then report to the \"nova\" pane for further instructions"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-mcd-japan-analytics--/2026-08-18T03-08-31-711Z_01a012d7-8e5f-713b-9f0c-ab6a66c39930.jsonl",
+  "proj": "data-projects-mcd-japan-analytics",
+  "size_kb": 3181,
+  "first_user": "So, [Hesitant] check it for this one is [Long pause] exploratory for now. Please don't make any edits or changes. [Long pause] This repository is the data and analytics project that contains [Long pause] the ingestion processes and airflows for McDonald's Japan. [Long pause] So, "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-mcd-japan-data--/2026-07-28T03-16-09-348Z_019fa6b8-fe04-7182-923a-41fe26681d8f.jsonl",
+  "proj": "data-projects-mcd-japan-data",
+  "size_kb": 4534,
+  "first_user": "Hello KD! Please review this dbt project to onboard and understant it, then i want you to dry-run the dbt model against the prod project (mcd-japan-analytics-prod) and estimate the total run cost of the dbt job"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-mcd-jma-price-extraction--/2026-09-15T04-21-54-452Z_01a0a34c-cc94-729a-9f37-2ad811d22da4.jsonl",
+  "proj": "data-projects-mcd-jma-price-extraction",
+  "size_kb": 593,
+  "first_user": "You are the delegate agent for the mcd-jma-price-extraction project (McDonald's Japan List Price Master), standing in for Alex who is on a call. Onboard to current state now. Read in order: (1) this repo: README.md, CONTEXT.md, docs/PROPOSAL_option_level_rows.md, skim pipeline/pu"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-mcd-rdd-hikari-inference--/2026-07-22T02-25-35-374Z_019f87a4-8a8e-7de2-b40c-941fe45e6c7a.jsonl",
+  "proj": "data-projects-mcd-rdd-hikari-inference",
+  "size_kb": 1950,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-mcd-rdd-platform--/2026-05-25T03-00-27-732Z_019e5d13-9fd4-7fda-af15-64c47a6a127b.jsonl",
+  "proj": "data-projects-mcd-rdd-platform",
+  "size_kb": 976,
+  "first_user": "Welcome to the project. To orient yourself, first read the contents of the README.md file and all .md files existing in the .pi/ folder of this project."
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-pihook--/2026-06-22T14-47-42-765Z_019eefcd-31ac-71f2-a330-f24b844959f2.jsonl",
+  "proj": "data-projects-pihook",
+  "size_kb": 887,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-piui--/2026-05-16T17-38-35-988Z_019e31de-5954-7072-86ba-4315b98d02ea.jsonl",
+  "proj": "data-projects-piui",
+  "size_kb": 670,
+  "first_user": "Hello and welcome to the PiUi project, please read the readme and the markdown files in your .pi/ folder to orient yourself, today we will be working ont he visual styling of the chatbox, read through how the components work before we kick off"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-platform--/2026-08-28T06-03-40-208Z_goal-2026-08-27-002-ws4-m2-remove-old-stack.jsonl",
+  "proj": "data-projects-platform",
+  "size_kb": 936,
+  "first_user": "We have reasoned through this enough to have a clear picture of what we are building. Do not summarize the conversation \u2014 produce the actual spec document, ready to save.  If an operator focus directive was piped in (e.g. `/spec-write focus on UI` or a multi-line body), weave it "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-platform-frontend--/2026-08-04T02-36-16-850Z_019fcaa1-0052-7c22-babc-fae6f5c9f654.jsonl",
+  "proj": "data-projects-platform-frontend",
+  "size_kb": 2600,
+  "first_user": "Hello! please onboard on what Finnrick is by reading this business repository"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-test-and-learn--/2026-06-09T04-39-33-905Z_019eaaad-bf11-7a1c-982a-827e2808a8f3.jsonl",
+  "proj": "data-projects-test-and-learn",
+  "size_kb": 706,
+  "first_user": "Hello this is your first run in this prject, please review all the files you can, search for *.md in this folder and orient yourself. This repo is for Test And Learn, a project we developed for McDonald's Japan to be able to perform A/B tests for retail locations utilizing synthe"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-trader45--/2026-06-08T14-31-59-397Z_019ea7a5-c4a5-77c9-91c7-1be1a5b4f3db.jsonl",
+  "proj": "data-projects-trader45",
+  "size_kb": 1174,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-projects-withanna--/2026-08-24T16-30-29-346Z_goal-2026-08-23-001-ptbr-conversion.jsonl",
+  "proj": "data-projects-withanna",
+  "size_kb": 940,
+  "first_user": "Standalone task, not a GOAL milestone. Branch: fix/pt-br-conversion-tools (already checked out, based on master which now contains all 8 merged tool items).  DECISION MADE BY THE HUMAN: Portuguese targets **Brazil (pt-BR)**. This is recorded in docs/SEO_OPTIMIZATION_PLAYBOOK.md \u00a7"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--data-services-seasons--/2026-08-28T03-07-41-984Z_01a04656-6420-78ae-aadb-a5fa8ed0c771.jsonl",
+  "proj": "data-services-seasons",
+  "size_kb": 897,
+  "first_user": "You are implementing the Capture Box for the Season dashboard. Nova (chief of staff, pane w1A:p1) is delegating this to you and will review.  START HERE: read /data/services/seasons/docs/BRIEF_capture_box.md in full. It is the spec. Also read README.md and .pi/AGENTS.md in this r"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex--/2026-07-15T05-02-28-309Z_019f6427-a7d5-7dc0-88fe-bb17e300c5d3.jsonl",
+  "proj": "home-alex",
+  "size_kb": 964,
+  "first_user": "Can you summarize our principles of AI software development?"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-anna-sdr--/2026-08-19T04-38-15-146Z_01a01850-0f6a-7230-8979-35d1fa56ae67.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-anna-sdr",
+  "size_kb": 761,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-infra-debug--/2026-08-19T07-03-16-179Z_01a018d4-d3d3-7bf7-9c71-c847b305114b.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-infra-debug",
+  "size_kb": 820,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-payments--/2026-08-19T05-42-05-303Z_goal-2026-08-19-001-entitlement-grants.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-payments",
+  "size_kb": 1071,
+  "first_user": "/onboard  Context for this GOAL item (read after onboarding core files): you are the implementer for GOAL item `entitlement-grants` \u2014 read the full GOAL at .pi/goals/GOAL_2026-08-19-001.md (in THIS worktree), especially its Execution Contract (worktree mechanics, LLM judge gate, "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-prod-monitor--/2026-08-30T17-10-29-163Z_01a053a6-b42b-74d6-ad60-b6f079bfeff3.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-prod-monitor",
+  "size_kb": 5563,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-rick--/2026-09-14T16-07-22-927Z_01a0a0ac-522e-76dd-adac-6a2644da77bd.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-rick",
+  "size_kb": 929,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-socials-tool--/2026-08-28T15-59-35-528Z_01a04919-1468-717e-8b37-3105af7cde11.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-socials-tool",
+  "size_kb": 1064,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-token-cleanup--/2026-08-21T21-43-21-261Z_01a02647-49ad-764c-b0c6-584b87c5b67f.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-token-cleanup",
+  "size_kb": 3704,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-annabelle-worktree-calm-stone-8871--/2026-08-19T10-25-23-795Z_01a0198d-e153-716b-a810-89e5cdc9a45c.jsonl",
+  "proj": "home-alex-.herdr-worktrees-annabelle-worktree-calm-stone-8871",
+  "size_kb": 591,
+  "first_user": "Hello you are in a worktree but i was in a branch when creating it, can you please check us out to a fresh branch from master in this same worktree and look a the rick \"upsell\" it seems it has been failing for quite a while (https://github.com/Growth-Kinetics/annabelle/issues/183"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-contracts_mcd_marketing-forecasting--/2026-09-03T02-56-44-133Z_01a06532-8265-7bf9-98e7-72c7fa7fd75f.jsonl",
+  "proj": "home-alex-.herdr-worktrees-contracts_mcd_marketing-forecasting",
+  "size_kb": 5106,
+  "first_user": "Hello! please take a look in this folder is all details of our contract with McDonald's japan, it contains a subfolder with work we did on forecasting sales. Can you find and review/prime that work? we will be diving into improving it with a quick PoC for a slightly different for"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-contracts_mcd_marketing-product-analysis--/2026-09-03T02-58-30-535Z_01a06534-2207-7f93-94f1-8c71849cddc3.jsonl",
+  "proj": "home-alex-.herdr-worktrees-contracts_mcd_marketing-product-analysis",
+  "size_kb": 1889,
+  "first_user": "Hello! THis contract contains all the details of our engagement with McDonald's Japan, within it you will find an analysis projects subfolder with various projects we have participated in, i am especially interested in you reviewing anaysis we have done on FryL"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-fastfitness-proxy--/2026-09-14T02-08-06-255Z_01a09dab-f06e-77ac-a2b1-63ffe03661ad.jsonl",
+  "proj": "home-alex-.herdr-worktrees-fastfitness-proxy",
+  "size_kb": 6518,
+  "first_user": "Hello! Please /onboard onto this project, be aware that this is polyrepo, today's focus will be on the signup page."
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-mcd-rdd-platform-hikari--/2026-09-07T00-23-35-727Z_01a0793f-be2e-70ea-922f-c6ae7bc2290b.jsonl",
+  "proj": "home-alex-.herdr-worktrees-mcd-rdd-platform-hikari",
+  "size_kb": 1314,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-mcd-rdd-platform-monthly-sales--/2026-09-07T00-28-14-997Z_01a07944-0114-7402-a88f-1181dd95b5c5.jsonl",
+  "proj": "home-alex-.herdr-worktrees-mcd-rdd-platform-monthly-sales",
+  "size_kb": 1106,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-mcd-rdd-platform-peak-hourly--/2026-09-07T00-19-23-741Z_01a0793b-e5dd-7676-82d0-25611a15fe61.jsonl",
+  "proj": "home-alex-.herdr-worktrees-mcd-rdd-platform-peak-hourly",
+  "size_kb": 856,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-mcd-rdd-platform-predict--/2026-09-14T01-42-29-449Z_01a09d94-7d49-7539-bb09-71bfc05abec8.jsonl",
+  "proj": "home-alex-.herdr-worktrees-mcd-rdd-platform-predict",
+  "size_kb": 4267,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-mcd-rdd-platform-right-sizing--/2026-09-07T00-54-22-678Z_01a0795b-ecd6-728d-b15e-604a0a021f7d.jsonl",
+  "proj": "home-alex-.herdr-worktrees-mcd-rdd-platform-right-sizing",
+  "size_kb": 3869,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-mcd-rdd-platform-trade-areas--/2026-09-07T00-18-32-597Z_01a0793b-1e14-7320-acde-b3e0d6b3b716.jsonl",
+  "proj": "home-alex-.herdr-worktrees-mcd-rdd-platform-trade-areas",
+  "size_kb": 1681,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-platform-coa--/2026-09-14T06-41-58-657Z_01a09ea6-ad80-7361-88b0-15cb2d33be09.jsonl",
+  "proj": "home-alex-.herdr-worktrees-platform-coa",
+  "size_kb": 6693,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-platform-coa-parser--/2026-09-17T02-02-25-548Z_01a0ad19-d18c-72ab-b7c1-0c11515de068.jsonl",
+  "proj": "home-alex-.herdr-worktrees-platform-coa-parser",
+  "size_kb": 3036,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-platform-samples-sheet--/2026-09-15T10-03-25-643Z_01a0a485-784a-75a1-8f36-efe26f0d1c42.jsonl",
+  "proj": "home-alex-.herdr-worktrees-platform-samples-sheet",
+  "size_kb": 2822,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-web-admin-rms--/2026-09-16T07-46-09-413Z_01a0a92e-2784-743f-941c-1e58d370265c.jsonl",
+  "proj": "home-alex-.herdr-worktrees-web-admin-rms",
+  "size_kb": 5269,
+  "first_user": "You are taking over as GOAL orchestrator for GOAL_2026-09-15-001 (Record Management System \u2014 replacing the Samples Google Sheet). Read .pi/HANDOVER.md in this directory FIRST, in full, before anything else: it explains why the handover happened, what is already provisioned, and t"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-web-admin-s0-surface--/2026-09-16T14-04-08-236Z_goal-2026-09-15-001-s0-surface-review-3.jsonl",
+  "proj": "home-alex-.herdr-worktrees-web-admin-s0-surface",
+  "size_kb": 562,
+  "first_user": "Review pass 3 of PR #340 (`goal-2026-09-15-001-s0-surface` \u2192 `feature/RMS`), fresh session. `git pull` in `/home/alex/.herdr/worktrees/web-admin/s0-surface` first. **This is the final pass the GOAL allows (`reviewMaxPasses: 3`)** \u2014 a further CHANGES_REQUESTED parks the item, so w"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--home-alex-.herdr-worktrees-web-admin-s1-reference-entities--/2026-09-17T04-11-39-404Z_goal-2026-09-15-001-s1-reference-entities.jsonl",
+  "proj": "home-alex-.herdr-worktrees-web-admin-s1-reference-entities",
+  "size_kb": 1110,
+  "first_user": "/onboard  You are the implementer for GOAL_2026-09-15-001 item `s1-reference-entities` (S1a). You are in web-admin at `/home/alex/.herdr/worktrees/web-admin/s1-reference-entities`, on branch `goal-2026-09-15-001-s1-reference-entities`, cut from `feature/RMS`. Do NOT run `npm inst"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root--/2026-05-15T12-34-54-422Z_019e2ba1-f356-775b-910b-e8cc4ee7c945.jsonl",
+  "proj": "root",
+  "size_kb": 1260,
+  "first_user": "Hello Pi! I want to ask you about your features and wonder how extension work, here is the setup: I have a Hetzner Box where i do all my work, this allows me to keep my files and work on the machine and that i way i can access it on my phone or my other machines while i travel (I"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-hetzner_sync-Contract Repos-contracts_mcd_marketing-trending_now--/2026-05-28T05-05-43-987Z_019e6cf9-6433-7474-a068-65d0f3931934.jsonl",
+  "proj": "root-hetzner_sync-Contract Repos-contracts_mcd_marketing-trending_now",
+  "size_kb": 623,
+  "first_user": "The objective of today's work is to surface a streamlit app that we can use with the client to explore a new feature they want to build \"Trending Now\" which is an API that will surface data the McDonald's Japan Mobile App (JMA) on what products are currently \"trending\" on the app"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-AnnabelllesRoom--/2026-06-24T05-34-11-943Z_019ef81f-27e7-7eb8-b365-60574972ca10.jsonl",
+  "proj": "root-projects-AnnabelllesRoom",
+  "size_kb": 1655,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-DiffMem--/2026-06-21T17-57-18-402Z_019eeb54-69c2-77c8-b4c0-e0210a82ffce.jsonl",
+  "proj": "root-projects-DiffMem",
+  "size_kb": 907,
+  "first_user": "Can you download and read this pdf and within the context of this project tell me if there\u2019s any valuable learnings for us ? https://arxiv.org/pdf/2606.19847"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-agon--/2026-06-04T04-50-20-147Z_019e90f7-cf73-7173-9cea-da509d87a29d.jsonl",
+  "proj": "root-projects-agon",
+  "size_kb": 999,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-ai-product-master--/2026-06-02T04-04-11-868Z_019e8680-d9dc-7a6a-9dd8-93b8cce09f4a.jsonl",
+  "proj": "root-projects-ai-product-master",
+  "size_kb": 502,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-annabelle--/2026-06-25T04-29-25-746Z_019efd0a-3772-77b6-83cd-0e9b4bd5d67a.jsonl",
+  "proj": "root-projects-annabelle",
+  "size_kb": 922,
+  "first_user": "please perform an indepth code review on the current branch before we push, this is work for PR #72"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-fastfitness--/2026-05-26T02-58-10-467Z_019e6237-e3a3-79ef-8085-3b2c73e2427e.jsonl",
+  "proj": "root-projects-fastfitness",
+  "size_kb": 1014,
+  "first_user": "Welcome to the project. To orient yourself, first read the contents of the README.md file and all .md files existing in the .pi/ folder of this project."
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-gk-pi--/2026-06-25T06-59-16-360Z_019efd93-6707-7e2d-a521-f084b8dc411d.jsonl",
+  "proj": "root-projects-gk-pi",
+  "size_kb": 1011,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-heavy-thinking--/2026-06-29T06-53-32-599Z_goal-2026-06-29-001-ht-28.jsonl",
+  "proj": "root-projects-heavy-thinking",
+  "size_kb": 736,
+  "first_user": "/onboard  You are working on heavy-thinking issue #28 (\"Default subagent thinkingLevel: minimal/low since heavy_think's architectural step already encodes the reasoning\"). Orient to /data/projects/heavy-thinking. Key files: extensions/heavy-think/subprocess.ts (runSubagent, Subpr"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-hypno--/2026-06-03T20-18-21-497Z_019e8f23-14b9-7b8a-bfc6-1a42beadd45a.jsonl",
+  "proj": "root-projects-hypno",
+  "size_kb": 2398,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-ingester--/2026-08-21T10-01-09-311Z_01a023c4-67bf-7fed-8350-73e9c071dd57.jsonl",
+  "proj": "root-projects-ingester",
+  "size_kb": 4911,
+  "first_user": "You are orienting yourself to this project. Orient EFFICIENTLY \u2014 do NOT over-deliberate. This should take under ~3 minutes of wall-time. Do not think at length between reads; one short orienting thought per file is enough.  Tool discipline: during onboarding you may ONLY use the "
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-mcd-japan-data--/2026-07-28T03-16-09-348Z_019fa6b8-fe04-7182-923a-41fe26681d8f.jsonl",
+  "proj": "root-projects-mcd-japan-data",
+  "size_kb": 4534,
+  "first_user": "Hello KD! Please review this dbt project to onboard and understant it, then i want you to dry-run the dbt model against the prod project (mcd-japan-analytics-prod) and estimate the total run cost of the dbt job"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-mcd-rdd-platform--/2026-05-25T03-00-27-732Z_019e5d13-9fd4-7fda-af15-64c47a6a127b.jsonl",
+  "proj": "root-projects-mcd-rdd-platform",
+  "size_kb": 976,
+  "first_user": "Welcome to the project. To orient yourself, first read the contents of the README.md file and all .md files existing in the .pi/ folder of this project."
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-tommy_demo--/2026-05-28T11-02-17-077Z_019e6e3f-d2f4-7180-bbfa-10fa15cbeff2.jsonl",
+  "proj": "root-projects-tommy_demo",
+  "size_kb": 515,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-trader45--/2026-06-08T14-31-59-397Z_019ea7a5-c4a5-77c9-91c7-1be1a5b4f3db.jsonl",
+  "proj": "root-projects-trader45",
+  "size_kb": 1174,
+  "first_user": "You are orienting yourself to this project. Read the following files in order \u2014 the sequence matters, each layer builds on the last.  1. Read README.md \u2014 understand what the project is and its tech stack.  2. Read .pi/AGENTS.md \u2014 this is the master attention router. It maps capab"
+ },
+ {
+  "path": "/home/alex/.pi/agent/sessions/--root-projects-withanna--/2026-08-24T16-30-29-346Z_goal-2026-08-23-001-ptbr-conversion.jsonl",
+  "proj": "root-projects-withanna",
+  "size_kb": 940,
+  "first_user": "Standalone task, not a GOAL milestone. Branch: fix/pt-br-conversion-tools (already checked out, based on master which now contains all 8 merged tool items).  DECISION MADE BY THE HUMAN: Portuguese targets **Brazil (pt-BR)**. This is recorded in docs/SEO_OPTIMIZATION_PLAYBOOK.md \u00a7"
+ }
+]

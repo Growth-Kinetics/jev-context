@@ -1,0 +1,314 @@
+[
+ {
+  "proj": "data",
+  "relevant": [
+   "browser-use"
+  ],
+  "scores": {
+   "typesafe-ai": 0.14,
+   "hatchet-cli": 0.14,
+   "herdr": 0.18,
+   "landing-page": 0.47,
+   "agentmail": 0.09,
+   "neon": 0.18,
+   "neon-postgres": 0.04,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.06,
+   "elixir-ash-phoenix": 0.04,
+   "high-end-visual-design": 0.02,
+   "industrial-brutalist-ui": 0.14,
+   "minimalist-ui": 0.3,
+   "spec": 0.23,
+   "browser-use": 0.92,
+   "tldraw": 0.03,
+   "documentation-first-workflow": 0.1,
+   "heavy-think": 0.32
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-heavy-thinking",
+  "relevant": [
+   "heavy-think"
+  ],
+  "scores": {
+   "typesafe-ai": 0.33,
+   "hatchet-cli": 0.1,
+   "herdr": 0.18,
+   "landing-page": 0.02,
+   "agentmail": 0.02,
+   "neon": 0.12,
+   "neon-postgres": 0.02,
+   "neon-postgres-branches": 0.02,
+   "design-taste-frontend": 0.02,
+   "elixir-ash-phoenix": 0.02,
+   "high-end-visual-design": 0.02,
+   "industrial-brutalist-ui": 0.02,
+   "minimalist-ui": 0.03,
+   "spec": 0.92,
+   "browser-use": 0.07,
+   "tldraw": 0.02,
+   "documentation-first-workflow": 0.4,
+   "heavy-think": 0.92
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-loqum_io",
+  "relevant": [
+   "landing-page"
+  ],
+  "scores": {
+   "typesafe-ai": 0.11,
+   "hatchet-cli": 0.11,
+   "herdr": 0.11,
+   "landing-page": 0.81,
+   "agentmail": 0.06,
+   "neon": 0.09,
+   "neon-postgres": 0.09,
+   "neon-postgres-branches": 0.06,
+   "design-taste-frontend": 0.84,
+   "elixir-ash-phoenix": 0.03,
+   "high-end-visual-design": 0.86,
+   "industrial-brutalist-ui": 0.15,
+   "minimalist-ui": 0.43,
+   "spec": 0.24,
+   "browser-use": 0.6,
+   "tldraw": 0.05,
+   "documentation-first-workflow": 0.61,
+   "heavy-think": 0.36
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-piui",
+  "relevant": [
+   "design-taste-frontend"
+  ],
+  "scores": {
+   "typesafe-ai": 0.22,
+   "hatchet-cli": 0.11,
+   "herdr": 0.12,
+   "landing-page": 0.04,
+   "agentmail": 0.04,
+   "neon": 0.08,
+   "neon-postgres": 0.04,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.84,
+   "elixir-ash-phoenix": 0.03,
+   "high-end-visual-design": 0.73,
+   "industrial-brutalist-ui": 0.14,
+   "minimalist-ui": 0.63,
+   "spec": 0.18,
+   "browser-use": 0.08,
+   "tldraw": 0.04,
+   "documentation-first-workflow": 0.17,
+   "heavy-think": 0.64
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-platform",
+  "relevant": [
+   "spec"
+  ],
+  "scores": {
+   "typesafe-ai": 0.13,
+   "hatchet-cli": 0.17,
+   "herdr": 0.14,
+   "landing-page": 0.02,
+   "agentmail": 0.03,
+   "neon": 0.31,
+   "neon-postgres": 0.21,
+   "neon-postgres-branches": 0.12,
+   "design-taste-frontend": 0.04,
+   "elixir-ash-phoenix": 0.02,
+   "high-end-visual-design": 0.02,
+   "industrial-brutalist-ui": 0.03,
+   "minimalist-ui": 0.05,
+   "spec": 0.91,
+   "browser-use": 0.05,
+   "tldraw": 0.02,
+   "documentation-first-workflow": 0.7,
+   "heavy-think": 0.71
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-loqum_landing",
+  "relevant": [
+   "herdr"
+  ],
+  "scores": {
+   "typesafe-ai": 0.08,
+   "hatchet-cli": 0.09,
+   "herdr": 0.9,
+   "landing-page": 0.07,
+   "agentmail": 0.07,
+   "neon": 0.08,
+   "neon-postgres": 0.03,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.05,
+   "elixir-ash-phoenix": 0.03,
+   "high-end-visual-design": 0.03,
+   "industrial-brutalist-ui": 0.04,
+   "minimalist-ui": 0.07,
+   "spec": 0.14,
+   "browser-use": 0.65,
+   "tldraw": 0.03,
+   "documentation-first-workflow": 0.45,
+   "heavy-think": 0.4
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-mcd-japan-data",
+  "relevant": [],
+  "scores": {
+   "typesafe-ai": 0.08,
+   "hatchet-cli": 0.12,
+   "herdr": 0.15,
+   "landing-page": 0.02,
+   "agentmail": 0.03,
+   "neon": 0.09,
+   "neon-postgres": 0.02,
+   "neon-postgres-branches": 0.02,
+   "design-taste-frontend": 0.02,
+   "elixir-ash-phoenix": 0.01,
+   "high-end-visual-design": 0.01,
+   "industrial-brutalist-ui": 0.02,
+   "minimalist-ui": 0.02,
+   "spec": 0.21,
+   "browser-use": 0.67,
+   "tldraw": 0.02,
+   "documentation-first-workflow": 0.21,
+   "heavy-think": 0.41
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-personas-omnara",
+  "relevant": [],
+  "scores": {
+   "typesafe-ai": 0.09,
+   "hatchet-cli": 0.1,
+   "herdr": 0.12,
+   "landing-page": 0.05,
+   "agentmail": 0.08,
+   "neon": 0.1,
+   "neon-postgres": 0.04,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.03,
+   "elixir-ash-phoenix": 0.03,
+   "high-end-visual-design": 0.02,
+   "industrial-brutalist-ui": 0.03,
+   "minimalist-ui": 0.03,
+   "spec": 0.21,
+   "browser-use": 0.62,
+   "tldraw": 0.03,
+   "documentation-first-workflow": 0.21,
+   "heavy-think": 0.27
+  },
+  "errors": {}
+ },
+ {
+  "proj": "root",
+  "relevant": [],
+  "scores": {
+   "typesafe-ai": 0.21,
+   "hatchet-cli": 0.11,
+   "herdr": 0.13,
+   "landing-page": 0.1,
+   "agentmail": 0.07,
+   "neon": 0.11,
+   "neon-postgres": 0.09,
+   "neon-postgres-branches": 0.1,
+   "design-taste-frontend": 0.11,
+   "elixir-ash-phoenix": 0.08,
+   "high-end-visual-design": 0.08,
+   "industrial-brutalist-ui": 0.1,
+   "minimalist-ui": 0.18,
+   "spec": 0.19,
+   "browser-use": 0.23,
+   "tldraw": 0.07,
+   "documentation-first-workflow": 0.31,
+   "heavy-think": 0.23
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-content-Research",
+  "relevant": [],
+  "scores": {
+   "typesafe-ai": 0.25,
+   "hatchet-cli": 0.14,
+   "herdr": 0.18,
+   "landing-page": 0.03,
+   "agentmail": 0.04,
+   "neon": 0.11,
+   "neon-postgres": 0.04,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.03,
+   "elixir-ash-phoenix": 0.03,
+   "high-end-visual-design": 0.02,
+   "industrial-brutalist-ui": 0.03,
+   "minimalist-ui": 0.03,
+   "spec": 0.18,
+   "browser-use": 0.27,
+   "tldraw": 0.03,
+   "documentation-first-workflow": 0.15,
+   "heavy-think": 0.53
+  },
+  "errors": {}
+ },
+ {
+  "proj": "home-alex",
+  "relevant": [],
+  "scores": {
+   "typesafe-ai": 0.07,
+   "hatchet-cli": 0.06,
+   "herdr": 0.11,
+   "landing-page": 0.03,
+   "agentmail": 0.04,
+   "neon": 0.11,
+   "neon-postgres": 0.03,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.03,
+   "elixir-ash-phoenix": 0.03,
+   "high-end-visual-design": 0.02,
+   "industrial-brutalist-ui": 0.03,
+   "minimalist-ui": 0.03,
+   "spec": 0.21,
+   "browser-use": 0.78,
+   "tldraw": 0.03,
+   "documentation-first-workflow": 0.1,
+   "heavy-think": 0.41
+  },
+  "errors": {}
+ },
+ {
+  "proj": "data-projects-withanna",
+  "relevant": [],
+  "scores": {
+   "typesafe-ai": 0.07,
+   "hatchet-cli": 0.14,
+   "herdr": 0.17,
+   "landing-page": 0.22,
+   "agentmail": 0.03,
+   "neon": 0.08,
+   "neon-postgres": 0.02,
+   "neon-postgres-branches": 0.03,
+   "design-taste-frontend": 0.15,
+   "elixir-ash-phoenix": 0.02,
+   "high-end-visual-design": 0.04,
+   "industrial-brutalist-ui": 0.03,
+   "minimalist-ui": 0.05,
+   "spec": 0.8,
+   "browser-use": 0.74,
+   "tldraw": 0.02,
+   "documentation-first-workflow": 0.46,
+   "heavy-think": 0.35
+  },
+  "errors": {}
+ }
+]

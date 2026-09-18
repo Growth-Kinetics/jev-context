@@ -1,0 +1,16 @@
+{
+  "name": "jev-context",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Jev-routed context governor for Pi: skill routing, tool surfacing, epoch pruning. Verification contract: VERIFYING.md.",
+  "scripts": {
+    "check": "biome check --error-on-warnings . && tsgo --noEmit -p tsconfig.json && node scripts/check-pinned-deps.mjs",
+    "test": "node --test --experimental-strip-types $(find . -name '*.test.ts' -not -path './node_modules/*')"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/node": "26.6.1",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2"
+  }
+}
