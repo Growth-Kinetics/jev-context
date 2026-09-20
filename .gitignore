@@ -1,0 +1,12 @@
+node_modules/
+
+# Owner-local benchmark corpus (never committed; real session logs stay on the owner's machine)
+eval/golden-sessions.json
+eval/baseline-results.json
+eval/expected.json
+eval/REPORT*.md
+eval/REPORT*.json
+eval/fixtures/recorded-cache.json
+
+# Local process artifacts (GOALs, specs, learnings) stay on the author machine
+.pi/

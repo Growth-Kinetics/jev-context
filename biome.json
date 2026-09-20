@@ -1,0 +1,35 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!node_modules",
+      "!eval/REPORT.md",
+      "!eval/REPORT.json",
+      "!eval/REPORT-ALL.md",
+      "!eval/REPORT-ALL.json",
+      "!eval/golden-sessions.json",
+      "!eval/baseline-results.json",
+      "!eval/fixtures"
+    ]
+  }
+}
