@@ -143,9 +143,11 @@ days, not to trust ours.
 ## Install
 
 ```sh
-git clone https://github.com/Growth-Kinetics/jev-context
-ln -s "$PWD/jev-context/extensions/jev-context.ts" ~/.pi/agent/extensions/jev-context.ts
+pi install git:github.com/Growth-Kinetics/jev-context          # latest
+pi install git:github.com/Growth-Kinetics/jev-context@v0.1.0   # pinned
 ```
+
+Or manually: symlink `extensions/jev-context.ts` into `~/.pi/agent/extensions/`.
 
 Configure in `~/.pi/agent/jev-context.json` (all fields optional):
 
