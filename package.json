@@ -22,11 +22,19 @@
     "url": "https://github.com/Growth-Kinetics/jev-context.git"
   },
   "keywords": [
-    "pi",
-    "coding-agent",
+    "pi-package",
+    "pi-extension",
     "context-management",
     "typesafe",
     "jev",
     "llm"
-  ]
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
 }
