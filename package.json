@@ -1,7 +1,7 @@
 {
   "name": "jev-context",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "private": false,
   "type": "module",
   "description": "Jev-routed context governor for Pi coding agent sessions: skill routing, tool surfacing, epoch pruning",
   "scripts": {
@@ -36,5 +36,14 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
-  }
+  },
+  "files": [
+    "extensions",
+    "eval",
+    "scripts",
+    "assets",
+    "VERIFYING.md",
+    "README.md",
+    "LICENSE"
+  ]
 }
