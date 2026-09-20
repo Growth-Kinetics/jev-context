@@ -1,7 +1,7 @@
 # jev-context
 
 **We cut the context a coding agent carries by a third, not by summarizing the past but by
-never loading the wrong things and deleting proven garbage — and the judge that decides costs
+never loading the wrong things and deleting proven garbage. The judge that decides costs
 two tenths of a cent per turn.**
 
 This is an extension for [Pi](https://github.com/earendil-works/pi-mono), the terminal coding
