@@ -4,6 +4,8 @@
 never loading the wrong things and deleting proven garbage. The judge that decides costs
 two tenths of a cent per turn.**
 
+![jev-context: one session, two context policies](assets/jev-context.gif)
+
 This is an extension for [Pi](https://github.com/earendil-works/pi-mono), the terminal coding
 agent. It replaces Pi's attention-based context policy with a scored one, using
 [TypeSafe's Jev](https://docs.typesafe.ai), a System One model that returns calibrated
