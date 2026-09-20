@@ -31,8 +31,7 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions/*.ts",
-      "!./extensions/*.test.ts"
+      "./extensions/jev-context.ts"
     ]
   },
   "peerDependencies": {
