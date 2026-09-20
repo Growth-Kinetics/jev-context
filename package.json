@@ -31,7 +31,8 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions"
+      "./extensions",
+      "!./extensions/**/*.test.ts"
     ]
   },
   "peerDependencies": {
