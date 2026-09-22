@@ -23,7 +23,6 @@ import type {
 } from "@earendil-works/pi-ai";
 import type {
   BeforeAgentStartEvent,
-  BuildSystemPromptOptions,
   ContextEvent,
   ExtensionAPI,
   ExtensionCommandContext,
@@ -382,7 +381,8 @@ test("Given no API key configured, when Pi starts, then the extension loads, not
       type: "before_agent_start",
       prompt: "hi",
       systemPrompt: "",
-      systemPromptOptions: {} as unknown as BuildSystemPromptOptions,
+      systemPromptOptions:
+        {} as unknown as BeforeAgentStartEvent["systemPromptOptions"],
     },
     ctx,
   );
@@ -420,7 +420,8 @@ test("session_start builds the router once; later turns reuse it (no re-init, no
     type: "before_agent_start" as const,
     prompt,
     systemPrompt: "",
-    systemPromptOptions: {} as unknown as BuildSystemPromptOptions,
+    systemPromptOptions:
+      {} as unknown as BeforeAgentStartEvent["systemPromptOptions"],
   });
   handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
   await handlers.onBeforeAgentStart(turn("one"), ctx);
@@ -724,7 +725,8 @@ function beforeStartEvent(prompt: string): BeforeAgentStartEvent {
     type: "before_agent_start",
     prompt,
     systemPrompt: "",
-    systemPromptOptions: {} as unknown as BuildSystemPromptOptions,
+    systemPromptOptions:
+      {} as unknown as BeforeAgentStartEvent["systemPromptOptions"],
   };
 }
 
@@ -2194,7 +2196,8 @@ test("consoleLog gates stderr: silent by default, loud when opted in, degradatio
       type: "before_agent_start" as const,
       prompt: "hi",
       systemPrompt: "",
-      systemPromptOptions: {} as unknown as BuildSystemPromptOptions,
+      systemPromptOptions:
+        {} as unknown as BeforeAgentStartEvent["systemPromptOptions"],
     };
     await handlers.onBeforeAgentStart(evt, ctx);
     return { lines, notes };
