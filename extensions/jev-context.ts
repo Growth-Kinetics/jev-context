@@ -2,14 +2,23 @@
  * jev-context — Jev-routed context governor for Pi (GOAL 2026-09-18-001).
  *
  * Nozzle 1 — skill loading: at each user-turn boundary (`before_agent_start`),
- *   scores the skill catalog against a digest of the session via the Jev
+ *   scores the skill catalog against the routing state via the Jev
  *   (TypeSafe System One) API — one parallel request per not-yet-active skill
  *   with the full skill body embedded in the noul question — then injects the
  *   winning skill bodies into the deep-copied message list of the `context`
- *   event, frozen until `agent_settled`.
- * Nozzle 2 — tool surfacing: on the SAME boundary and the SAME digest, scores
- *   owner-configured tool namespaces in ONE batched Jev request (one noul per
- *   namespace, tool descriptions only) and applies the result via
+ *   event, frozen until `agent_settled`. The routing state (frozen design,
+ *   issue #8) is a JSON object with named fields — `latest_user_message`
+ *   (the latest user message verbatim, 8KB head+tail cap, logged when it
+ *   trips) riding outside the unchanged 80KB digest cap, plus
+ *   `conversation_digest` — replacing the bare digest string for BOTH
+ *   scorers; instructions weight tools, skills, libraries or services the
+ *   user names in `latest_user_message` as strong evidence (judgment-side
+ *   only: no name matching in code, owner ruling).
+ * Nozzle 2 — tool surfacing: on the SAME boundary and the SAME routing
+ *   state, scores owner-configured tool namespaces in ONE batched Jev
+ *   request (one noul per namespace — the namespace's configured
+ *   `description` line when present, then tool descriptions only) and
+ *   applies the result via
  *   `setActiveTools`. The hardcoded core (read, write, edit, bash, grep, find,
  *   ls) is never routed; namespace schemas are present only while their
  *   namespace is active; mutations happen at the boundary only, never
@@ -73,8 +82,10 @@
  * Config: `~/.pi/agent/jev-context.json` then `<cwd>/.pi/jev-context.json`;
  *   the API key comes from the config-named env var (default
  *   $PI_TYPESAFE_JEV) or the config-named file. The key is never logged (§3.6).
- *   `toolNamespaces` maps namespace -> { tools, prefix } (owner rules, §3.8 —
- *   the extension ships no bundle opinions); `coreTools` extends the
+ *   `toolNamespaces` maps namespace -> { tools, prefix, description? }
+ *   (owner rules, §3.8 — the extension ships no bundle opinions; the
+ *   optional description says what the namespace IS and rides in its noul
+ *   instructions); `coreTools` extends the
  *   hardcoded core floor; `toolSurfaceThreshold` gates namespaces.
  *   `pruneStateCapBytes` bounds the batched judgment state;
  *   `pruneThreshold` is the helpfulness score at or below which a pair is
@@ -117,6 +128,12 @@ export interface ToolNamespaceConfig {
   tools: string[];
   /** Prefix match against available tool names (e.g. "browser_"). */
   prefix: string | undefined;
+  /**
+   * Optional owner line saying what the namespace IS ("web search and
+   * extraction APIs"). Rides in that namespace's noul instructions — a
+   * brand name alone maps weakly to its tools (issue #8).
+   */
+  description?: string;
 }
 
 /**
@@ -225,7 +242,15 @@ function pickNamespaceConfig(raw: unknown): ToolNamespaceConfig | null {
       : [];
   const prefix = typeof r.prefix === "string" ? r.prefix : undefined;
   if (tools.length === 0 && prefix === undefined) return null;
-  return { tools, prefix };
+  const description =
+    typeof r.description === "string" && r.description.length > 0
+      ? r.description
+      : undefined;
+  return {
+    tools,
+    prefix,
+    ...(description === undefined ? {} : { description }),
+  };
 }
 
 /** Keep only known, correctly-typed fields; expand `~/` in path fields. */
@@ -477,12 +502,86 @@ export function buildSessionDigest(
 }
 
 // --------------------------------------------------------------------------
+// Routing state (frozen design, issue #8): BOTH scorers judge against a
+// JSON object with named fields — the latest user message verbatim in its
+// own field, plus the newest-first digest — instead of the bare digest
+// string. One explicit word drowns in an 80KB digest; in its own field it
+// stays salient, and the noul instructions weight what the user names there
+// as strong evidence (judgment-side only: no name matching in code, owner
+// ruling). The digest cap is unchanged; the latest message rides outside it
+// but counts toward the Jev 32k-token state wall, so it is bounded to 8KB
+// head+tail, logged when the cap trips.
+// --------------------------------------------------------------------------
+
+export interface RoutingState {
+  /** The latest user message, verbatim (8KB head+tail cap applied). */
+  latest_user_message: string;
+  /** The session digest (newest-first under the byte cap, chronological). */
+  conversation_digest: string;
+}
+
+/** Bound on the latest-message field; the digest cap is separate. */
+export const LATEST_USER_MESSAGE_CAP_BYTES = 8192;
+
+export function buildRoutingState(input: {
+  latestUserMessage: string;
+  digest: string;
+}): { state: RoutingState; latestTruncated: boolean } {
+  const bytes = Buffer.byteLength(input.latestUserMessage, "utf8");
+  if (bytes <= LATEST_USER_MESSAGE_CAP_BYTES) {
+    return {
+      state: {
+        latest_user_message: input.latestUserMessage,
+        conversation_digest: input.digest,
+      },
+      latestTruncated: false,
+    };
+  }
+  // headTailExcerpt is the Nozzle-3 excerpt helper (hoisted declaration).
+  return {
+    state: {
+      latest_user_message: headTailExcerpt(
+        input.latestUserMessage,
+        bytes,
+        LATEST_USER_MESSAGE_CAP_BYTES,
+      ),
+      conversation_digest: input.digest,
+    },
+    latestTruncated: true,
+  };
+}
+
+/**
+ * Digest + routing state in one pass, logging the truncation trip. The
+ * wiring calls this once per boundary and shares the result between both
+ * nozzles (frozen design); the skill router falls back to it when
+ * constructed without the wiring.
+ */
+function routingStateOf(
+  prompt: string,
+  entries: readonly DigestEntry[],
+  digestCapBytes: number,
+  log: (line: string) => void,
+): RoutingState {
+  const { state, latestTruncated } = buildRoutingState({
+    latestUserMessage: prompt,
+    digest: buildSessionDigest(entries, prompt, digestCapBytes),
+  });
+  if (latestTruncated) {
+    log(
+      `ROUTE_STATE_TRUNCATED: field=latest_user_message original_bytes=${Buffer.byteLength(prompt, "utf8")} cap_bytes=${LATEST_USER_MESSAGE_CAP_BYTES}`,
+    );
+  }
+  return state;
+}
+
+// --------------------------------------------------------------------------
 // Jev client: the single injectable seam (§4). Everything network lives here;
 // tests substitute this function or point it at a fixture server.
 // --------------------------------------------------------------------------
 
 export interface JevScoreRequest {
-  state: string;
+  state: RoutingState;
   skillName: string;
   skillBody: string;
 }
@@ -502,11 +601,20 @@ const NOUL_CRITERIA = {
   false: "Unrelated or only tangentially related",
 } as const;
 
+/**
+ * State-shape guidance appended to both routing nouls (frozen design, issue
+ * #8): name the fields and weight what the user names in the latest message
+ * as strong evidence. Judgment-side text only — code never matches names.
+ */
+function routingStateGuidance(target: "skill" | "namespace"): string {
+  return `The conversation state is a JSON object with named fields: \`latest_user_message\` is the user's most recent message verbatim and \`conversation_digest\` is the earlier conversation. Tools, skills, libraries or services the user names in \`latest_user_message\` are strong evidence for the matching ${target}.`;
+}
+
 export function buildShouldLoadInstructions(
   skillName: string,
   skillBody: string,
 ): string {
-  return `Below is the full documentation of a candidate agent skill named '${skillName}'. Should this skill be loaded into the agent's context to help with the user's current work in the conversation state?\n\n--- SKILL DOCUMENTATION ---\n${skillBody}`;
+  return `Below is the full documentation of a candidate agent skill named '${skillName}'. Should this skill be loaded into the agent's context to help with the user's current work in the conversation state?\n\n${routingStateGuidance("skill")}\n\n--- SKILL DOCUMENTATION ---\n${skillBody}`;
 }
 
 export function parseJevScoreResponse(
@@ -604,10 +712,12 @@ export interface NamespaceScorePayload {
   name: string;
   /** One `name: description` line per tool in the namespace. */
   descriptions: string;
+  /** Owner-configured line saying what the namespace IS (issue #8). */
+  description?: string;
 }
 
 export interface NamespaceScoreRequest {
-  state: string;
+  state: RoutingState;
   namespaces: readonly NamespaceScorePayload[];
 }
 
@@ -637,8 +747,13 @@ const SURFACE_CRITERIA = {
 export function buildShouldSurfaceInstructions(
   namespace: string,
   descriptions: string,
+  description?: string,
 ): string {
-  return `Below are the tool descriptions of the '${namespace}' tool namespace, one line per tool as 'name: description'. Should this namespace's tool schemas be included in the agent's available tools for the user's current work in the conversation state?\n\n--- TOOL DESCRIPTIONS ---\n${descriptions}`;
+  // Frozen design (issue #8): when the owner configured a description, the
+  // noul carries "<name>: <description>; tools:" ahead of the tool lines.
+  const header =
+    description === undefined ? "" : `${namespace}: ${description}; tools:\n`;
+  return `Below are the tool descriptions of the '${namespace}' tool namespace, one line per tool as 'name: description'. Should this namespace's tool schemas be included in the agent's available tools for the user's current work in the conversation state?\n\n${routingStateGuidance("namespace")}\n\n--- TOOL DESCRIPTIONS ---\n${header}${descriptions}`;
 }
 
 export function createJevNamespaceScorer(options: {
@@ -653,7 +768,11 @@ export function createJevNamespaceScorer(options: {
     for (const ns of request.namespaces) {
       questions[surfaceQuestionKey(ns.name)] = {
         type: "noul",
-        instructions: buildShouldSurfaceInstructions(ns.name, ns.descriptions),
+        instructions: buildShouldSurfaceInstructions(
+          ns.name,
+          ns.descriptions,
+          ns.description,
+        ),
         criteria: SURFACE_CRITERIA,
       };
     }
@@ -892,6 +1011,8 @@ export interface ResolvedNamespace {
   name: string;
   tools: string[];
   descriptions: string;
+  /** Owner-configured namespace description, carried to the noul. */
+  description?: string;
 }
 
 export function resolveNamespaces(
@@ -925,6 +1046,7 @@ export function resolveNamespaces(
       descriptions: tools
         .map((t) => `${t}: ${byName.get(t)?.description ?? ""}`)
         .join("\n"),
+      ...(ns.description === undefined ? {} : { description: ns.description }),
     });
   }
   resolved.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -1539,9 +1661,9 @@ export interface SkillRouter {
   onBeforeAgentStart(input: {
     prompt: string;
     entries: readonly DigestEntry[];
-    /** Prebuilt by the wiring when Nozzle 2 shares the boundary (one digest
-     *  per epoch, frozen design); built from prompt+entries when absent. */
-    digest?: string;
+    /** Prebuilt by the wiring when Nozzle 2 shares the boundary (one routing
+     *  state per epoch, frozen design); built from prompt+entries when absent. */
+    state?: RoutingState;
   }): Promise<void>;
   onContext(event: ContextEvent): SkillInjectionResult;
   onAgentSettled(): void;
@@ -1617,13 +1739,14 @@ export function createSkillRouter(deps: SkillRouterDeps): SkillRouter {
       return true;
     },
 
-    async onBeforeAgentStart({ prompt, entries, digest: prebuilt }) {
+    async onBeforeAgentStart({ prompt, entries, state: prebuilt }) {
       if (deps.apiKey === null) return; // absent mode (§5 cross-cutting)
       epoch += 1;
       for (const a of active.values()) a.turnsSinceLoad += 1;
       const skippedActive = sortedActive().map((s) => s.name);
-      const digest =
-        prebuilt ?? buildSessionDigest(entries, prompt, deps.digestCapBytes);
+      const state =
+        prebuilt ??
+        routingStateOf(prompt, entries, deps.digestCapBytes, deps.log);
       // Skip-active: load scoring never re-scores active skills. The decay
       // re-check is the explicit exception: every decayIntervalTurns-th user
       // turn since load, a non-pinned active skill is re-scored once against
@@ -1645,14 +1768,14 @@ export function createSkillRouter(deps: SkillRouterDeps): SkillRouter {
       const results = await Promise.all([
         ...loadCandidates.map((skill) =>
           deps.jevScore({
-            state: digest,
+            state,
             skillName: skill.name,
             skillBody: skill.body,
           }),
         ),
         ...decayCandidates.map((name) =>
           deps.jevScore({
-            state: digest,
+            state,
             skillName: name,
             skillBody: deps.catalog.find((c) => c.name === name)?.body ?? "",
           }),
@@ -1734,8 +1857,9 @@ export function createSkillRouter(deps: SkillRouterDeps): SkillRouter {
 
 // --------------------------------------------------------------------------
 // Tool surface router (Nozzle 2): the namespace state machine. Shares the
-// digest and the `before_agent_start` epoch boundary with Nozzle 1 (built
-// once by the wiring); pure of Pi plumbing — the tool-set seams are injected.
+// routing state and the `before_agent_start` epoch boundary with Nozzle 1
+// (built once by the wiring); pure of Pi plumbing — the tool-set seams are
+// injected.
 // Boundary-only mutation (§3.4): setActiveTools fires exclusively here, and
 // only when the computed set actually changed.
 // --------------------------------------------------------------------------
@@ -1764,7 +1888,7 @@ export interface ToolSurfaceRouter {
    * behavior when the API key is missing (§3.5).
    */
   onSessionStart(): void;
-  onBeforeAgentStart(input: { digest: string }): Promise<void>;
+  onBeforeAgentStart(input: { state: RoutingState }): Promise<void>;
   /**
    * Escape hatch (frozen design): Pi's agent loop answers calls to unknown
    * tools with a synthesized `Tool <name> not found` error result. Detecting
@@ -1859,7 +1983,7 @@ export function createToolSurfaceRouter(
       );
     },
 
-    async onBeforeAgentStart({ digest }) {
+    async onBeforeAgentStart({ state }) {
       if (deps.apiKey === null) return; // absent mode: behaves as if absent
       if (Object.keys(deps.namespaces).length === 0) return; // no opinions shipped
       epoch += 1;
@@ -1899,10 +2023,13 @@ export function createToolSurfaceRouter(
       };
       const started = deps.now();
       const result = await deps.jevNamespaceScore({
-        state: digest,
+        state,
         namespaces: resolved.map((r) => ({
           name: r.name,
           descriptions: r.descriptions,
+          ...(r.description === undefined
+            ? {}
+            : { description: r.description }),
         })),
       });
       const latencyMs = deps.now() - started;
@@ -2473,6 +2600,8 @@ export function createJevContextExtension(
   let pruner: EpochPruner | null = null;
   let telemetryFile = defaultTelemetryFile(deps.homeDir);
   let digestCapBytes = DEFAULT_DIGEST_CAP_BYTES;
+  // The session's gated log (consoleLog config); deps.log until build runs.
+  let sessionLog: (line: string) => void = deps.log;
   const registeredSkills = new Set<string>();
 
   const build = (ctx: ExtensionContext): SkillRouter => {
@@ -2490,6 +2619,7 @@ export function createJevContextExtension(
     const gatedLog = (line: string): void => {
       if (config.consoleLog) deps.log(line);
     };
+    sessionLog = gatedLog;
     const apiKey = resolveApiKey(config, deps.env);
     if (apiKey === null) {
       ctx.ui.notify(
@@ -2658,14 +2788,20 @@ export function createJevContextExtension(
       // Defensive lazy init only; session_start has normally fired first.
       if (router === null) router = build(ctx);
       const entries = ctx.sessionManager.getBranch();
-      // One digest per boundary, shared by both nozzles (frozen design):
-      // built here, handed to the skill pass and the namespace pass alike.
-      const digest = buildSessionDigest(entries, event.prompt, digestCapBytes);
+      // One routing state per boundary, shared by both nozzles (frozen
+      // design, issue #8): the latest user message verbatim in its own
+      // field plus the digest, built here and handed to both passes.
+      const state = routingStateOf(
+        event.prompt,
+        entries,
+        digestCapBytes,
+        sessionLog,
+      );
       await Promise.all([
-        router.onBeforeAgentStart({ prompt: event.prompt, entries, digest }),
+        router.onBeforeAgentStart({ prompt: event.prompt, entries, state }),
         toolRouter === null
           ? Promise.resolve()
-          : toolRouter.onBeforeAgentStart({ digest }),
+          : toolRouter.onBeforeAgentStart({ state }),
         // The prune applied set refreshes at the same boundary, after any
         // in-flight judge pass from the settle completes (§3.4).
         pruner === null ? Promise.resolve() : pruner.refreshAppliedSet(),

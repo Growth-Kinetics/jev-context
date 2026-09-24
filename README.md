@@ -30,17 +30,19 @@ bust forced 83k tokens to recompute. That call paid for 6.6 million tokens of Je
 
 The extension hooks four Pi lifecycle events and makes three kinds of decisions.
 
-**Nozzle 1: skill routing** (`before_agent_start`). On each user turn, the extension builds a
+**Nozzle 1: skill routing** (`before_agent_start`). On each user turn, the extension builds
+a routing state for the session — your latest message verbatim in its own field, plus a
 digest of the conversation (user turns plus assistant text and thinking, tool I/O excluded,
-newest-first, capped at 80KB) and scores every not-yet-loaded skill against it. One request
+newest-first, capped at 80KB) — and scores every not-yet-loaded skill against it. One request
 per skill, all in parallel, each carrying the skill's *full body* rather than its description.
 Skills scoring ≥ 0.6 (top-3 by score) are injected; the rest of the catalog never enters
 context. Loaded skills are not re-scored; a decay re-check every fifth turn evicts what has
 gone stale (floor 0.25). Manual `/skill:name` loads are pinned and exempt.
 
 **Nozzle 2: tool surfacing** (same boundary, one batched call). You group peripheral tools
-into namespaces in config (`browser_*`, `tavily_*`, your MCP servers). Jev scores each
-namespace against the same digest; only active namespaces occupy schema tokens. A hardcoded
+into namespaces in config (`browser_*`, `tavily_*`, your MCP servers), optionally with a
+one-line `description` of what the namespace is. Jev scores each namespace against the same
+routing state; only active namespaces occupy schema tokens. A hardcoded
 core (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`) is always on. If the model calls
 a surfaced-off tool anyway, Pi's unknown-tool error is detected and the namespace returns at
 the next boundary, logged as `TOOL_SURFACE_MISS`.
@@ -166,10 +168,20 @@ Configure in `~/.pi/agent/jev-context.json` (all fields optional):
   "pruneThreshold": 0.2,
   "consoleLog": false,                   // true echoes judgment lines to stderr
   "toolNamespaces": {                    // your bundles; none are shipped
-    "browser": { "prefix": "browser_" }
+    "browser": { "prefix": "browser_" },
+    "tavily": {
+      "prefix": "tavily_",
+      "description": "Web search and extraction APIs"
+    }
   }
 }
 ```
+
+A namespace's `description` is one optional line saying what the namespace *is*. It rides in
+that namespace's routing question, which matters when the name alone does not map to its
+tools (a brand like `tavily` versus its `tavily_*` search tools). Naming a tool or skill in
+your latest message is likewise first-class evidence: the routing state carries that message
+verbatim in its own field, so one explicit word is not diluted by a long session's digest.
 
 Skill discovery scans Pi's canonical skill roots; add yours via `skillRoots`. A project-level
 `.pi/jev-context.json` overrides user config.
@@ -186,7 +198,7 @@ written, and nothing is sent anywhere else. If your sessions are sensitive, read
 ```sh
 npm install --ignore-scripts
 npm run check   # biome (zero warnings) + tsgo (erasableSyntaxOnly) + pinned deps + eval gate
-npm test        # node --test, 102 tests, no network
+npm test        # node --test, 114 tests, no network
 ```
 
 `VERIFYING.md` is the binding contract. `eval/README.md` documents the harness. Built
