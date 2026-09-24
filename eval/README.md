@@ -9,7 +9,7 @@ Binding quality contract: `VERIFYING.md`.
 | path | role |
 |---|---|
 | `run.ts` | CLI entry: gate, reports, live mode |
-| `harness/session.ts` | JSONL parser, epoch segmentation, tool pairing, nozzle-1 digest |
+| `harness/session.ts` | JSONL parser, context_edit projection, epoch segmentation, tool pairing, nozzle-1 digest |
 | `harness/policy.ts` | threshold policy (load 0.6, top-3, decay 0.25) from `expected.json` |
 | `harness/client.ts` | the single injectable Jev boundary (recorded cache or live fetch) |
 | `harness/simulate.ts` | counterfactual arms: baseline / routed / pruned |
@@ -18,7 +18,7 @@ Binding quality contract: `VERIFYING.md`.
 | `golden-sessions.json` | owner-local corpus index (paths to YOUR sessions); gitignored, never committed |
 | `baseline-results.json` | owner-local recorded skill scores for your labeled sessions; gitignored |
 | `expected.json` | owner-local labels, threshold policy, ratchet (floors + FP ceiling); gitignored |
-| `fixtures/` | committed snapshots: skill catalog sizes, tool schema sizes, synthetic mini-session |
+| `fixtures/` | committed snapshots: skill catalog sizes, tool schema sizes, synthetic mini-session, mini-session with context_edit entries |
 | `REPORT.md` / `REPORT-ALL.md` | owner-local report artifacts; gitignored |
 
 ## Corpus: owner-local by design
@@ -52,6 +52,23 @@ Jev endpoint through the injectable client, and writes scores into
 `fixtures/recorded-cache.json` keyed by request content hash. The key is never logged or
 stored. Tests never construct the live path against real network.
 
+## context_edit projection (Pi >= 0.87) and the raw figure
+
+Sessions governed by this extension carry append-only `context_edit` entries
+(`{ type: "context_edit", targetId, replacement }`; `replacement: null` omits the target
+from model context, `{ content }` replaces only its content). `harness/session.ts`
+reimplements Pi's projection — latest edit per target wins, omitted targets produce no
+message, replacements keep role/metadata — so epochs, digests, and the baseline arm all
+reflect what the model actually saw. `eval/harness/parity.test.ts` compares our projection
+against Pi's exported `buildSessionProjection()` and **skips loudly** (`PARITY_SKIP`) when the
+installed `@earendil-works/pi-coding-agent` predates 0.87 (this repo pins 0.85.1).
+
+The reports therefore show two native figures: **raw** (pre-edit history, no governor at all)
+and **baseline** (projected). Their difference is labeled *already pruned by governor* — it is
+what the extension's durable prunes saved in the real session, distinct from any nozzle
+counterfactual. Pairs removed by edits no longer exist in projected epochs, so the harness
+never re-judges them (mirrors the extension's resume rule).
+
 ## Token model
 
 Bytes-to-tokens estimator at **3.5 bytes/token** for all text/thinking/tool-JSON content,
@@ -68,9 +85,11 @@ Image bytes are reported as a separate bucket in every report so the distortion 
 Each session is replayed once; every epoch (user turn) bills `context tokens x calls` where
 calls = assistant messages in the epoch.
 
-- **baseline** — native Pi: all 18 catalog skill bodies + all namespace schemas in every
-  epoch; full history accumulates. Skill/schema bytes come from `fixtures/*.json`
-  (measured from the live skill roots and the installed Pi dist; provenance inside).
+- **raw** — no governor: pre-edit history, all 18 catalog skill bodies + all namespace schemas
+  in every epoch (what the session would have billed ungoverned). Skill/schema bytes come from
+  `fixtures/*.json` (measured from the live skill roots and the installed Pi dist; provenance inside).
+- **baseline** — native Pi over the projected session (context_edit applied): what the session
+  actually billed; `raw - baseline` history is already-pruned-by-governor.
 - **routed** — nozzles 1+2: top-3 skills >= 0.6 (skip-active, decay re-check every 5th turn),
   namespaces surfaced only while active, always-on core exempt.
 - **pruned** — nozzle 3 added: tool call/result pairs judged "not helpful to subsequent

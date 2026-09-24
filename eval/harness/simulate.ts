@@ -1,9 +1,11 @@
-// SIMULATE: counterfactual replay of one session under three arms.
-//   baseline — native Pi: every catalog skill body and every namespace schema in every
-//              epoch's context, full history accumulates.
+// SIMULATE: counterfactual replay of one session under four accountings.
+//   raw      — no governor at all: pre-context_edit history, full catalog every epoch.
+//   baseline — native Pi over the PROJECTED session (context_edit applied): what a
+//              governed session actually bills before any nozzle counterfactual.
 //   routed   — nozzles 1+2: only the active skill set and active namespaces injected.
 //   pruned   — nozzle 3 added: judged-dead tool call/result pairs leave the history at
 //              epoch boundaries (thinking/text of those messages remain).
+// raw - baseline history is labeled "already pruned by governor" in the reports.
 // Skill scores come from an injectable per-epoch provider (recorded table in fixture mode,
 // Jev client in live mode). Namespace activity and prune verdicts are derived from
 // transcript ground truth (documented proxies; see eval/README.md "Simulation policies").
@@ -21,6 +23,7 @@ import {
   chatMessageBytes,
   isToolResultMessage,
   pairsInEpoch,
+  segmentEpochs,
   toolResultBytes,
 } from "./session.ts";
 import { estimateTokens } from "./tokens.ts";
@@ -58,6 +61,9 @@ export interface SessionResult {
   baseline: ArmTotals;
   routed: ArmTotals;
   pruned: ArmTotals;
+  /** pre-projection native arm: what the session would bill with no governor at all;
+   *  raw - baseline is history "already pruned by governor" via context_edit entries */
+  raw: ArmTotals;
   prunedPairs: number;
   prunedTokens: number;
   /** ground-truth recurrence violations among pruned pairs (0 by construction in fixture) */
@@ -142,6 +148,9 @@ export async function simulate(
 ): Promise<SessionResult> {
   const { catalog, policy } = opts;
   const perEpoch = toolsCalledPerEpoch(session);
+  // raw (pre-context_edit) epochs for the raw arm; user-turn structure is identical
+  // unless an edit omitted a user entry, which the nozzle never does (Pi permits it)
+  const rawEpochs = segmentEpochs(session.entries);
   const allSkillBytes = Object.values(catalog.skills).reduce(
     (a, b) => a + b,
     0,
@@ -188,6 +197,7 @@ export async function simulate(
   const loadedEver = new Set<string>();
   const spend: SpendLine[] = [];
   const baseline = emptyArm();
+  const raw = emptyArm();
   const routed = emptyArm();
   const pruned = emptyArm();
   let calls = 0;
@@ -303,11 +313,26 @@ export async function simulate(
         0,
       );
 
-    // history through epoch e-1: full vs pruned-pair-surgery
+    // history through epoch e-1: full vs pruned-pair-surgery, each over BOTH the raw
+    // (pre-edit) and projected (post-edit) entry sets — projected is what the model
+    // actually saw in a governed session, raw is the no-governor counterfactual
     let fullHistory = 0;
+    let rawHistory = 0;
     let prunedHistory = 0;
     let fullImages = 0;
+    let rawImages = 0;
     let prunedImages = 0;
+    for (let f = 0; f < e && f < rawEpochs.length; f++) {
+      for (const entry of rawEpochs[f].entries) {
+        const msg = entry.message;
+        if (msg === undefined) continue;
+        const b = isToolResultMessage(msg)
+          ? toolResultBytes(msg)
+          : chatMessageBytes(msg);
+        rawHistory += b.textBytes;
+        rawImages += b.imageBytes;
+      }
+    }
     for (let f = 0; f < e; f++) {
       for (const entry of session.epochs[f].entries) {
         const msg = entry.message;
@@ -347,6 +372,7 @@ export async function simulate(
 
     const n = Math.max(epoch.callCount, 1); // a turn with zero assistant turns still bills once
     for (const [arm, armSkills, armTools, armHistory, armImages] of [
+      [raw, allSkillBytes, allToolsBytes, rawHistory, rawImages],
       [baseline, allSkillBytes, allToolsBytes, fullHistory, fullImages],
       [
         routed,
@@ -383,6 +409,7 @@ export async function simulate(
     baseline,
     routed,
     pruned,
+    raw,
     prunedPairs: prunedCallIds.size,
     prunedTokens: estimateTokens(prunedResultBytes),
     falsePrune,

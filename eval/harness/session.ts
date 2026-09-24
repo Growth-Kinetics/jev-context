@@ -1,5 +1,6 @@
-// SESSION: parse Pi session JSONL into typed entries, segment epochs at user turns,
-// pair toolCall parts with toolResult messages, and build the Nozzle-1 digest.
+// SESSION: parse Pi session JSONL into typed entries, apply context_edit projection
+// (Pi >= 0.87 semantics), segment epochs at user turns, pair toolCall parts with
+// toolResult messages, and build the Nozzle-1 digest.
 // Digest spec (SESSION_SPEC_2026-09-18-001): newest-first walk, user turns + assistant
 // text/thinking only, tool calls and results excluded, 80KB budget.
 
@@ -39,7 +40,64 @@ export function parseSessionLines(lines: string[]): SessionEntry[] {
 
 export function parseSession(path: string): ParsedSession {
   const entries = parseSessionLines(readFileSync(path, "utf8").split("\n"));
-  return { path, entries, epochs: segmentEpochs(entries) };
+  const projected = projectEntries(entries);
+  return { path, entries, projected, epochs: segmentEpochs(projected) };
+}
+
+// ---------------------------------------------------------------------------
+// context_edit projection, reimplemented per Pi 0.87's documented algorithm
+// (dist/core/session-manager.js buildSessionProjection): apply the LATEST edit per
+// target; omitted targets produce no message; replacements retain the source entry's
+// role and metadata while changing only content. Compaction/branch entries are not
+// modeled by this harness; edits target message entries in practice (nozzle 3).
+
+/** ids targeted by any context_edit entry in file order (latest edit wins downstream) */
+export function contextEdits(
+  entries: SessionEntry[],
+): Map<string, SessionEntry> {
+  const edits = new Map<string, SessionEntry>();
+  for (const entry of entries) {
+    if (entry.type === "context_edit" && entry.targetId !== undefined) {
+      edits.set(entry.targetId, entry);
+    }
+  }
+  return edits;
+}
+
+/** Model-visible entries: context_edit entries applied, the edit entries themselves dropped. */
+export function projectEntries(entries: SessionEntry[]): SessionEntry[] {
+  const edits = contextEdits(entries);
+  const out: SessionEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === "context_edit") continue; // edits carry no message of their own
+    const edit = entry.id !== undefined ? edits.get(entry.id) : undefined;
+    if (edit === undefined) {
+      out.push(entry);
+      continue;
+    }
+    if (edit.replacement === null || edit.replacement === undefined) {
+      continue; // omit: the target produces no message
+    }
+    if (entry.message === undefined) {
+      // harness models message entries only; a content replacement on a non-message
+      // entry (custom_message & co.) keeps it visible unchanged
+      out.push(entry);
+      continue;
+    }
+    const replacement = edit.replacement;
+    // Pi: a plain-string replacement becomes one text part for assistant/toolResult;
+    // user-message string replacements cannot occur (ContextEditableContent is parts)
+    // but are normalized the same way rather than trusted
+    const content: MessagePart[] =
+      typeof replacement.content === "string"
+        ? [{ type: "text" as const, text: replacement.content }]
+        : replacement.content;
+    out.push({
+      ...entry,
+      message: { ...entry.message, content },
+    });
+  }
+  return out;
 }
 
 export function segmentEpochs(entries: SessionEntry[]): Epoch[] {

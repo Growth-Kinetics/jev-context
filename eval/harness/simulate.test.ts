@@ -10,6 +10,8 @@ import { parseSession } from "./session.ts";
 import { simulate } from "./simulate.ts";
 
 const MINI = new URL("../fixtures/mini.jsonl", import.meta.url).pathname;
+const MINI_EDITED = new URL("../fixtures/mini-edited.jsonl", import.meta.url)
+  .pathname;
 const policy: ThresholdPolicy = { load: 0.6, top_k: 3, decay: 0.25 };
 const catalog = loadCatalog();
 
@@ -128,6 +130,31 @@ test("reduction is strictly positive on the mini-session", async () => {
   const r = await runMini();
   assert.ok(r.routed.textBytes < r.baseline.textBytes);
   assert.ok(r.pruned.textBytes <= r.routed.textBytes);
+});
+
+test("raw arm: context_edit prunes show as already-pruned-by-governor, not nozzle savings", async () => {
+  const scores = Object.fromEntries(
+    Object.keys(catalog.skills).map((k) => [k, scoreOf(k)]),
+  );
+  const governed = await simulate(parseSession(MINI_EDITED), {
+    proj: "mini-edited",
+    catalog,
+    policy,
+    scores: async () => scores,
+    skillsAvailable: true,
+  });
+  // the governor's own context_edit entries shrink the projected baseline vs raw
+  assert.ok(governed.raw.historyBytes > governed.baseline.historyBytes);
+  assert.ok(governed.raw.textBytes > governed.baseline.textBytes);
+  // the tc2 pair (result omitted by edit, call part removed from e5) no longer
+  // exists in the projected epochs, so the proxy never re-judges it: prunedPairs 0
+  assert.equal(governed.prunedPairs, 0);
+});
+
+test("raw arm equals baseline on an ungoverned session (no edits, no double counting)", async () => {
+  const r = await runMini();
+  assert.equal(r.raw.textBytes, r.baseline.textBytes);
+  assert.equal(r.raw.historyBytes, r.baseline.historyBytes);
 });
 
 test("two full pipeline runs produce byte-identical reports", async () => {
