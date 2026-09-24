@@ -147,8 +147,10 @@ test("raw arm: context_edit prunes show as already-pruned-by-governor, not nozzl
   assert.ok(governed.raw.historyBytes > governed.baseline.historyBytes);
   assert.ok(governed.raw.textBytes > governed.baseline.textBytes);
   // the tc2 pair (result omitted by edit, call part removed from e5) no longer
-  // exists in the projected epochs, so the proxy never re-judges it: prunedPairs 0
-  assert.equal(governed.prunedPairs, 0);
+  // exists in the projected epochs, so the proxy never re-judges it: the single
+  // proxy prune is tc5 (grep, closed epoch, never called again) — pre-edit it saw
+  // tc2+tc3+tc5 and would have pruned both tc2 and tc5 (recurrence proxy)
+  assert.equal(governed.prunedPairs, 1);
 });
 
 test("raw arm equals baseline on an ungoverned session (no edits, no double counting)", async () => {

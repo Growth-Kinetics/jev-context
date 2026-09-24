@@ -1,6 +1,8 @@
 // RUN: CLI entry for the benchmark harness.
 //   node eval/run.ts --check                  ratchet gate over committed data (no sessions needed)
 //   node eval/run.ts [--corpus golden|all] [--session <path>...] [--live] [--out <dir>]
+//   node eval/run.ts --prune-report [--session <path>...]  live pruning accuracy from
+//                                             context_edit verdicts (no scores, no network)
 // Fixture mode (default) is deterministic and touches no network. --live reads the key from
 // PI_TYPESAFE_JEV or --key-file, hits the Jev endpoint through the injectable client, and
 // writes results into the recorded cache (scores only; the key is never logged or stored).
@@ -29,6 +31,11 @@ import {
   type ScoreCache,
   saveCache,
 } from "./harness/client.ts";
+import {
+  buildPruneReport,
+  pruneReportJson,
+  pruneReportMarkdown,
+} from "./harness/prune-report.ts";
 import {
   buildReport,
   type LabelMetrics,
@@ -62,7 +69,7 @@ function readJson<T>(path: string): T {
 
 function usage(): never {
   console.error(
-    "usage: node eval/run.ts --check | [--corpus golden|all] [--session <path>...] [--live] [--out <dir>] [--key-file <path>]",
+    "usage: node eval/run.ts --check | --prune-report [--session <path>...] | [--corpus golden|all] [--session <path>...] [--live] [--out <dir>] [--key-file <path>]",
   );
   process.exit(2);
 }
@@ -112,6 +119,7 @@ async function main(): Promise<number> {
     }
   }
   const wantCheck = flags.has("check");
+  const wantPruneReport = flags.has("prune-report");
   const live = flags.has("live");
   const corpusArg = flags.get("corpus") ?? "golden";
   const outDir = flags.get("out") ?? EVAL_DIR;
@@ -162,6 +170,35 @@ async function main(): Promise<number> {
   const golden: GoldenEntry[] = existsSync(goldenPath)
     ? readJson<GoldenEntry[]>(goldenPath)
     : [];
+
+  // ---- prune-report mode: reads context_edit verdicts only — no skill scores,
+  // no recorded baseline, no live client, no network
+  if (wantPruneReport) {
+    const corpus =
+      sessionPaths.length > 0
+        ? sessionPaths.map((p) => ({ path: p, proj: p }))
+        : golden;
+    if (corpus.length === 0) {
+      console.error(
+        "NO_CORPUS: no eval/golden-sessions.json and no --session paths; point the harness at your own session logs (eval/README.md)",
+      );
+      return 2;
+    }
+    const doc = buildPruneReport(
+      sessionPaths.length > 0 ? `paths:${sessionPaths.length}` : "all",
+      corpus.map((c) => ({ proj: c.proj, session: parseSession(c.path) })),
+    );
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "REPORT-PRUNE.md"), pruneReportMarkdown(doc));
+    writeFileSync(join(outDir, "REPORT-PRUNE.json"), pruneReportJson(doc));
+    const a = doc.aggregate;
+    console.log(
+      `PRUNE_REPORT: governed=${a.governedSessions} skipped=${a.skippedSessions} pruned_pairs=${a.prunedPairs} proxy_false_prunes=${a.laterReferencedPruned} kept_never_referenced=${a.keptNeverReferenced}`,
+    );
+    console.log(`REPORT_WRITTEN: ${join(outDir, "REPORT-PRUNE.md")}`);
+    return 0;
+  }
+
   if (sessionPaths.length === 0 && golden.length === 0) {
     console.error(
       "NO_CORPUS: no eval/golden-sessions.json and no --session paths; point the harness at your own session logs (eval/README.md)",

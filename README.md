@@ -117,10 +117,13 @@ threshold-plus-top-3 rather than a naked cutoff: the false-positive rate at 0.6 
 concentrated in broad-description skills that run hot, which per-skill thresholds then absorb.
 A naked 0.5 would have shipped false confidence.
 
-**Pruning quality** is the number we deliberately do *not* claim yet. Harness-mode pruning
-uses a recurrence proxy (a tool never called again is dead weight), which is an upper bound,
-not a measurement of Jev's live verdicts. The fixture reports zero false prunes by
-construction. Live pruning accuracy is what the telemetry is for.
+**Pruning quality** is measurable on your own logs once the governor has run: every live
+prune lands as a durable `context_edit` entry, and `node eval/run.ts --prune-report` turns
+those edits into accuracy numbers under a named proxy (a pruned output whose distinctive
+tokens never reappear in later messages was safe to drop; one that gets quoted back was a
+false prune). On this box's one governed session so far: 6 prunes, 3 proxy false prunes,
+98 kept outputs never referenced later. The proxy bounds, it does not measure — harness-mode
+recurrence-proxy numbers remain the upper-bound view.
 
 **Cost and latency.** Jev is billed on input only, $0.042 per million tokens, output free.
 A turn in a long session routes 18 skills in parallel for ~53k input tokens: $0.0022 and

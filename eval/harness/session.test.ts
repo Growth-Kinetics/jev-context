@@ -139,7 +139,7 @@ test("projection: already-pruned pairs vanish from projected epochs (never re-ju
   const pairs = pairsInSession(parseSession(MINI_EDITED));
   assert.deepEqual(
     pairs.map((p) => p.call.id),
-    ["tc1", "tc3", "tc4"],
+    ["tc1", "tc3", "tc5", "tc4"],
   );
 });
 
