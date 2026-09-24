@@ -47,8 +47,10 @@ before committing, same as pi-mono.
    No imports from `dist/` internals, no monkeypatching, no prototype access.
 2. **Events, not polling.** All behavior hangs off declared events (`before_agent_start`,
    `context`, `agent_settled`, `session_start`). No timers that fire while Pi is idle.
-3. **Non-destructive by construction.** Context modification happens only via the `context`
-   event's deep-copied message list. The on-disk transcript is never written by this extension.
+3. **Non-destructive by construction.** Context modification happens via the `context`
+   event's deep-copied message list (filter fallback) or as append-only `context_edit`
+   session entries (Pi ≥ 0.87). Raw session entries are never modified or deleted; the
+   on-disk transcript stays append-only.
 4. **Frozen within an epoch.** Injection/prune sets are decided at user-turn boundaries and are
    byte-stable until `agent_settled`. Mid-loop mutation is a defect (prefix-cache correctness).
 5. **Degradation is loud.** Jev unreachable, key missing, 400/429/529 exhaustion: notify via
@@ -124,7 +126,12 @@ prose here as the reviewable contract and mirror each scenario as a `node:test` 
 - Given a prune verdict, when the next `context` event fires, then the call/result pair is
   removed from the copy and all thinking/text parts of those messages remain.
 - Given a message judged in a prior epoch, then it is never re-judged.
-- Given any prune, then the on-disk session file is byte-identical before and after.
+- Given any prune, then no raw session entry is modified; prunes appear only as appended
+  `context_edit` entries targeting the pair's entries.
+- Given a session resumed with existing `context_edit` entries, then their targets are not
+  re-judged and remain omitted/replaced in the projection.
+- Given Pi without `appendContextEdit`, then pruning falls back to context-event filtering
+  with identical model-visible results.
 
 ### Cross-cutting
 - Given no API key configured, when Pi starts, then the extension loads, notifies once, and

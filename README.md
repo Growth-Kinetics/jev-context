@@ -55,8 +55,13 @@ Two rules shape everything. **Mechanics in code, judgment in the model**: pair s
 caching, budget caps, and thresholds are deterministic TypeScript; relevance is Jev's. And
 **keep the learning, trash the garbage**: pruning removes tool call/result pairs but never
 the assistant's reasoning around them, because the reasoning is where "that path was a dead
-end" lives. The on-disk transcript is never modified; pruning edits only the deep-copied
-message list Pi hands to the `context` event.
+end" lives. On Pi ≥ 0.87 a prune is *durable*: it lands as append-only `context_edit`
+entries in the session file (the tool result omitted, the assistant entry's content replaced
+minus the pruned call), so pruned pairs stay pruned across resumes and tree forks — existing
+edits are read back at session start and never re-judged. The raw transcript is never
+modified. On older Pi the same verdicts filter the deep-copied message list Pi hands to the
+`context` event instead, with identical model-visible results; the active mode is logged once
+per session as `PRUNE_MODE`.
 
 ## How we use Pi's seams
 

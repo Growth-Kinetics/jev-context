@@ -29,33 +29,42 @@
  *   head+tail excerpted, which is input preparation, not a helpfulness
  *   rule), one noul per pair ("Given how this turn concluded, is this tool
  *   output helpful to subsequent turns?"). Verdicts are cached by the
- *   pair's toolCall id — the only message id present in both the session
- *   entries and the context-event copy — and judged once ever, never
- *   mid-loop. Code owns mechanics only; every helpfulness decision is
- *   Jev's (owner's ruling). Application of prune verdicts to the context
- *   copy is milestone M2. At each user-turn boundary the pruner freezes
- *   an applied set (awaiting any in-flight judge pass); the `context`
- *   handler then removes each pruned pair — the toolCall part and its
- *   whole toolResult message — from the deep-copied message list, while
- *   every thinking/text part of those messages remains (§3.3: the
- *   on-disk transcript is never written). The applied set is byte-stable
- *   within the epoch (§3.4); new verdicts apply only at the next
- *   boundary. Every judged epoch appends a PRUNE_JUDGED record, and every
- *   boundary that applies new verdicts appends a PRUNE_EPOCH record
- *   (judged/pruned/kept/tokens_reclaimed/scores) to the telemetry JSONL.
- *   Fail-static: judge failures log ROUTE_DEGRADED, notify once per error
- *   class, and cache nothing (zero pruning = Pi native).
+ *   pair's toolCall id and judged once ever, never mid-loop; the cache
+ *   carries the session entry ids of both sides of each pair. Code owns
+ *   mechanics only; every helpfulness decision is Jev's (owner's ruling).
+ *   Application happens at the next user-turn boundary (awaiting any
+ *   in-flight judge pass), in one of two modes feature-detected per
+ *   session: on Pi ≥ 0.87 (appendContextEdit present) each pruned pair
+ *   lands as append-only `context_edit` entries — the toolResult entry
+ *   omitted, the owning assistant entry's content replaced with its
+ *   parts minus the pruned toolCall part(s) (thinking/text kept
+ *   verbatim, zero parts left = omitted) — durable across resume, with
+ *   the raw transcript never modified (§3.3), and existing context_edit
+ *   targets on the branch seed the pruner at session_start so they are
+ *   never re-judged; on Pi < 0.87 the frozen applied set filters the
+ *   deep-copied message list of the `context` event instead — the
+ *   toolCall part and its whole toolResult message removed, every
+ *   thinking/text part remaining — with identical model-visible results.
+ *   The applied set is byte-stable within the epoch (§3.4); new verdicts
+ *   apply only at the next boundary. Every judged epoch appends a
+ *   PRUNE_JUDGED record, every boundary that applies new verdicts appends
+ *   a PRUNE_EPOCH record (mode/judged/pruned/kept/tokens_reclaimed/edits/
+ *   scores) to the telemetry JSONL, and the session's prune mode is logged
+ *   once as PRUNE_MODE. Fail-static: judge failures log ROUTE_DEGRADED,
+ *   notify once per error class, and cache nothing (zero pruning = Pi
+ *   native).
  * Events used: `session_start` (init: config, API key, catalog scan,
- *   fail-static tool baseline),
+ *   fail-static tool baseline, context_edit resume seeding),
  *   `before_agent_start` (digest + both scoring passes + injection rebuild +
- *   tool-set application + prune applied-set refresh), `context` (inject
- *   into and prune the message copy),
+ *   tool-set application + prune application at the boundary),
+ *   `context` (skill injection; pair filtering only in filter mode),
  *   `agent_settled` (close epoch + Nozzle-3 epoch judgment), `message_end`
  *   (unknown-tool miss detection).
  * State owned: skill catalog cache, active-skill set (name -> score, pinned
  *   flag, turns since load), the per-epoch frozen injection message, namespace
  *   active set, pending namespace misses, the prune verdict cache (toolCall
- *   id -> verdict) and its frozen per-epoch applied set, once-per-reason
+ *   id -> verdict with entry ids) and its frozen per-epoch applied set
+ *   (filter mode), the edited-target set (edit mode), once-per-reason
  *   degradation marks,
  *   once-per-name config logs, epoch counters, and the append-only telemetry
  *   JSONL. All session state rebuilds on `session_start` (any reason).
@@ -69,11 +78,12 @@
  *   hardcoded core floor; `toolSurfaceThreshold` gates namespaces.
  *   `pruneStateCapBytes` bounds the batched judgment state;
  *   `pruneThreshold` is the helpfulness score at or below which a pair is
- *   pruned (M2 application).
- * Invariants (VERIFYING.md): the on-disk transcript is never written (§3.3);
- *   injection is byte-stable within an epoch (§3.4); degradation is loud —
- *   notify once per reason, log ROUTE_DEGRADED, keep the current set (§3.5);
- *   boundary events emit structured logs (§3.9).
+ *   pruned.
+ * Invariants (VERIFYING.md): raw session entries are never modified — the
+ *   transcript stays append-only (§3.3); injection is byte-stable within an
+ *   epoch (§3.4); degradation is loud — notify once per reason, log
+ *   ROUTE_DEGRADED, keep the current set (§3.5); boundary events emit
+ *   structured logs (§3.9).
  */
 
 import type { Dirent } from "node:fs";
@@ -82,6 +92,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
+  AssistantMessage,
   TextContent,
   ThinkingContent,
   UserMessage,
@@ -393,6 +404,9 @@ export function scanSkillCatalog(roots: readonly string[]): SkillEntry[] {
 
 /** Structural minimum of SessionEntry needed here (message entries only). */
 export interface DigestEntry {
+  /** Session entry id — present on real SessionManager branch entries; the
+   *  context-edit prune path (Pi ≥ 0.87) targets entries by it. */
+  id?: string;
   type: string;
   message?: AgentMessage;
 }
@@ -939,6 +953,15 @@ export interface EpochPair {
   /** Full text of the tool result (text parts joined). */
   output: string;
   outputBytes: number;
+  /** Byte size of the toolCall part JSON; feeds the tokens_reclaimed estimate. */
+  callBytes: number;
+  /** Session entry id of the assistant message owning the call. */
+  assistantEntryId?: string;
+  /** Session entry id of the pair's toolResult message. */
+  resultEntryId?: string;
+  /** The owning assistant entry's full content at capture — the base the
+   *  replacement edit (Pi ≥ 0.87) subtracts pruned toolCall parts from. */
+  assistantContent?: AssistantMessage["content"];
 }
 
 /** Chronological epoch content: rendered text lines and tool calls. */
@@ -1019,6 +1042,9 @@ export function captureEpochPairs(
             ordinal: calls,
             output: "",
             outputBytes: 0,
+            callBytes: Buffer.byteLength(JSON.stringify(part), "utf8"),
+            assistantEntryId: entry.id,
+            assistantContent: message.content,
           });
         }
       }
@@ -1031,6 +1057,7 @@ export function captureEpochPairs(
         .join("\n");
       pair.output = output;
       pair.outputBytes = Buffer.byteLength(output, "utf8");
+      pair.resultEntryId = entry.id;
       pairs.push(pair);
       open.delete(message.toolCallId);
     }
@@ -1217,8 +1244,13 @@ export interface PruneEpochRecord {
   judged: number;
   pruned: number;
   kept: number;
-  /** Estimate at 4 bytes/token over pruned output bytes; telemetry only. */
+  /** Estimated tokens of the removed content (toolCall part JSON plus
+   *  toolResult content) at 3.5 bytes/token; telemetry only. */
   tokens_reclaimed: number;
+  /** context_edit entry ids appended at this boundary ([] in filter mode). */
+  edits: string[];
+  /** Application mode: durable edits (Pi ≥ 0.87) or the filter fallback. */
+  mode: "context_edit" | "context_filter";
   /** Newly applied helpfulness scores, by toolCall id. */
   scores: Record<string, number>;
 }
@@ -1370,6 +1402,11 @@ function parseTelemetryLine(line: string): TelemetryEvent | null {
         kept: rec.kept,
         tokens_reclaimed: rec.tokens_reclaimed,
         scores: numericScores,
+        // Pre-mode records parse as the filter fallback they were.
+        edits: Array.isArray(rec.edits)
+          ? rec.edits.filter((v): v is string => typeof v === "string")
+          : [],
+        mode: rec.mode === "context_edit" ? "context_edit" : "context_filter",
       };
     }
     return null;
@@ -2031,13 +2068,31 @@ export function applyPruneSet(
 // Epoch pruner (Nozzle 3): the judgment state machine. `agent_settled`
 // closes an epoch; the pruner captures it, judges every not-yet-judged
 // complete pair in one batched request, and caches verdicts by toolCall id
-// — judged once ever, never mid-loop. Application of prune verdicts to the
-// context copy is M2. Fail-static (§3.5): any judge failure logs
-// ROUTE_DEGRADED, notifies once per error class, and caches nothing (zero
-// pruning = Pi native); unjudged pairs stay eligible for retry at the next
-// settle. Code owns mechanics only — every helpfulness decision is Jev's
-// (owner's ruling).
+// — judged once ever, never mid-loop. Verdicts apply at the next user-turn
+// boundary (byte-stability §3.4), in one of two modes feature-detected by
+// the wiring: on Pi ≥ 0.87 each pruned pair lands as append-only
+// `context_edit` entries (durable across resume; the session projection
+// owns model visibility and the `context` event no longer filters); on
+// Pi < 0.87 the frozen applied set filters the context-event message copy
+// instead. Resume-aware: entries already targeted by existing context_edit
+// entries seed an edited-target set and are never re-judged. Fail-static
+// (§3.5): any judge failure logs ROUTE_DEGRADED, notifies once per error
+// class, and caches nothing (zero pruning = Pi native); unjudged pairs
+// stay eligible for retry at the next settle. Code owns mechanics only —
+// every helpfulness decision is Jev's (owner's ruling).
 // --------------------------------------------------------------------------
+
+/**
+ * Pi ≥ 0.87 durable prune seam: appends a `context_edit` session entry
+ * that omits an earlier entry from model context (replacement null) or
+ * replaces only its content (role/metadata retained). Raw entries are
+ * never modified; the transcript stays append-only. Returns the new
+ * edit entry's id.
+ */
+export type AppendContextEditFn = (
+  targetId: string,
+  replacement: { content: AssistantMessage["content"] } | null,
+) => string;
 
 export interface PruneVerdict {
   /** Jev helpfulness score in [0,1]; application thresholds it. */
@@ -2046,14 +2101,36 @@ export interface PruneVerdict {
   epoch: number;
   /** Byte size of the judged output; feeds the tokens_reclaimed estimate. */
   outputBytes: number;
+  /** Byte size of the toolCall part JSON; feeds the tokens_reclaimed estimate. */
+  callBytes: number;
+  /** Session entry id of the assistant message owning the pair's call. */
+  assistantEntryId?: string;
+  /** Session entry id of the pair's toolResult message. */
+  resultEntryId?: string;
+  /** Owning assistant entry's content at capture — the base the
+   *  replacement edit subtracts pruned toolCall parts from. */
+  assistantContent?: AssistantMessage["content"];
 }
 
 export interface EpochPrunerDeps {
   apiKey: string | null;
   jevPruneJudge: JevPruneJudgeFn;
   stateCapBytes: number;
-  /** Helpfulness score at or below which a pair is pruned (M2 application). */
+  /** Helpfulness score at or below which a pair is pruned. */
   pruneThreshold: number;
+  /**
+   * Pi ≥ 0.87 context-edit seam, feature-detected by the wiring. Present
+   *  = durable edit mode: prunes land as appended `context_edit` entries
+   *  at the boundary. Absent (Pi < 0.87) = filter fallback: the frozen
+   *  applied set is removed from the context-event message copy.
+   */
+  appendContextEdit?: AppendContextEditFn;
+  /**
+   * Entry ids already targeted by `context_edit` entries on the branch
+   * (resume seeding). Pairs touching a seeded entry are never re-judged;
+   * their prunes are already durable in the session file.
+   */
+  editedTargets?: readonly string[];
   notify: (message: string, type?: "info" | "warning" | "error") => void;
   log: (line: string) => void;
   recordTelemetry: (event: TelemetryEvent) => void;
@@ -2067,20 +2144,33 @@ export interface EpochPruner {
   onAgentSettled(entries: readonly DigestEntry[]): Promise<void>;
   /** Verdict for one pair, by toolCall id. */
   verdict(id: string): PruneVerdict | undefined;
-  /** All cached verdicts (M2 application seam). */
+  /** All cached verdicts (application seam). */
   verdicts(): ReadonlyMap<string, PruneVerdict>;
-  /** In-flight judge pass, if any (M2 awaits it before snapshotting). */
+  /** In-flight judge pass, if any (the boundary awaits it before applying). */
   pending(): Promise<void> | null;
-  /** M2: freeze the current verdicts as the applied set for the new epoch.
-   *  Awaits any in-flight judge pass first; emits PRUNE_EPOCH when new
-   *  verdicts enter the applied set. Boundary-only (§3.4). */
+  /**
+   * Apply new verdicts at the user-turn boundary: awaits any in-flight
+   * judge pass, then — edit mode — appends one omit edit per pruned
+   * toolResult entry and ONE replacement edit per assistant entry (its
+   * parts minus every pruned toolCall part; zero parts left = omit); —
+   * filter mode — freezes the pruned ids into the applied set. Emits
+   * PRUNE_EPOCH when new verdicts apply. Boundary-only (§3.4).
+   */
   refreshAppliedSet(): Promise<void>;
-  /** M2: remove the frozen applied set's pruned pairs from a context-event
-   *  message copy. Pure on the frozen set: byte-stable within an epoch. */
+  /**
+   * Filter mode: remove the frozen applied set's pruned pairs from a
+   * context-event message copy (pure, byte-stable within an epoch). Edit
+   * mode: identity — the session projection owns pruning.
+   */
   applyPrunes(messages: readonly AgentMessage[]): AgentMessage[];
-  /** M2: the frozen prune ids of the applied set (tests). */
+  /** The frozen prune ids of the applied set (filter mode; tests). */
   appliedIds(): ReadonlySet<string>;
 }
+
+/** Bytes→tokens estimate for reclaim telemetry: the eval harness's
+ *  calibrated constant (eval/harness/tokens.ts). Telemetry only, never a
+ *  decision input. */
+export const BYTES_PER_TOKEN_ESTIMATE = 3.5;
 
 export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
   let epoch = 0;
@@ -2091,8 +2181,18 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
   let pendingJudge: Promise<void> | null = null;
   /** Frozen applied set: verdicts snapshotted at the last boundary (§3.4). */
   const applied = new Map<string, PruneVerdict>();
-  /** Frozen prune ids: applied verdicts at or below the threshold. */
+  /** Frozen prune ids: applied verdicts at or below the threshold. Edit
+   *  mode leaves this empty — the session projection owns pruning. */
   let appliedPruneIds: ReadonlySet<string> = new Set();
+  /** Entry ids already targeted by context_edit entries (resume seeding
+   *  plus every edit this session applied): never re-judged. */
+  const editedTargets = new Set<string>(deps.editedTargets ?? []);
+  const editSink = deps.appendContextEdit;
+  const mode: PruneEpochRecord["mode"] =
+    editSink === undefined ? "context_filter" : "context_edit";
+  // The mode is fixed per session (feature-detected at build); log it once.
+  // Absent mode stays silent, consistent with the absent-mode contract.
+  if (deps.apiKey !== null) deps.log(`PRUNE_MODE: mode=${mode}`);
 
   const degrade = (errorClass: string, detail: string): void => {
     deps.log(
@@ -2111,9 +2211,18 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
     epoch += 1;
     const captured = captureEpochPairs(entries);
     if (captured === null) return;
+    // Resume-aware judge-once: a pair whose assistant or result entry is
+    // already the target of a context_edit entry is never re-judged — its
+    // prune is already durable in the session file.
+    const seeded = (p: EpochPair): boolean =>
+      (p.assistantEntryId !== undefined &&
+        editedTargets.has(p.assistantEntryId)) ||
+      (p.resultEntryId !== undefined && editedTargets.has(p.resultEntryId));
     const unjudged = new Set(
       captured.pairs
-        .filter((p) => !verdictMap.has(p.id) && !judging.has(p.id))
+        .filter(
+          (p) => !verdictMap.has(p.id) && !judging.has(p.id) && !seeded(p),
+        )
         .map((p) => p.id),
     );
     if (unjudged.size === 0) return;
@@ -2139,11 +2248,15 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
           degrade("bad_response", `pair=${p.id}`);
           continue;
         }
+        const pair = captured.pairs.find((cp) => cp.id === p.id);
         verdictMap.set(p.id, {
           score,
           epoch,
-          outputBytes:
-            captured.pairs.find((cp) => cp.id === p.id)?.outputBytes ?? 0,
+          outputBytes: pair?.outputBytes ?? 0,
+          callBytes: pair?.callBytes ?? 0,
+          assistantEntryId: pair?.assistantEntryId,
+          resultEntryId: pair?.resultEntryId,
+          assistantContent: pair?.assistantContent,
         });
         scores[`#${p.ordinal}`] = score;
       }
@@ -2172,29 +2285,81 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
     }
   };
 
+  /**
+   * Edit mode (Pi ≥ 0.87): append one omit edit per pruned toolResult
+   * entry and ONE replacement edit per owning assistant entry — the
+   * entry's parts minus every pruned toolCall part, thinking/text kept
+   * verbatim; an entry left with zero parts is omitted rather than
+   * replaced with empty content. Raw entries are never modified.
+   */
+  const applyPruneEdits = (pruned: [string, PruneVerdict][]): string[] => {
+    if (editSink === undefined) return [];
+    const editIds: string[] = [];
+    for (const [, v] of pruned) {
+      if (v.resultEntryId === undefined) continue;
+      editIds.push(editSink(v.resultEntryId, null));
+      editedTargets.add(v.resultEntryId);
+    }
+    const byEntry = new Map<
+      string,
+      { content: AssistantMessage["content"]; prunedIds: Set<string> }
+    >();
+    for (const [id, v] of pruned) {
+      if (v.assistantEntryId === undefined || v.assistantContent === undefined)
+        continue;
+      const group = byEntry.get(v.assistantEntryId) ?? {
+        content: v.assistantContent,
+        prunedIds: new Set<string>(),
+      };
+      group.prunedIds.add(id);
+      byEntry.set(v.assistantEntryId, group);
+    }
+    for (const [entryId, group] of byEntry) {
+      const content = group.content.filter(
+        (part) => part.type !== "toolCall" || !group.prunedIds.has(part.id),
+      );
+      editIds.push(
+        editSink(entryId, content.length === 0 ? null : { content }),
+      );
+      editedTargets.add(entryId);
+    }
+    return editIds;
+  };
+
   const refreshAppliedSet = async (): Promise<void> => {
     if (deps.apiKey === null) return; // absent mode
     if (pendingJudge !== null) await pendingJudge;
     const fresh = [...verdictMap.entries()].filter(([id]) => !applied.has(id));
     if (fresh.length === 0) return;
     for (const [id, v] of fresh) applied.set(id, v);
-    const nextIds = new Set<string>();
-    for (const [id, v] of applied) {
-      if (v.score <= deps.pruneThreshold) nextIds.add(id);
-    }
-    appliedPruneIds = nextIds;
-    // PRUNE_EPOCH: what THIS boundary newly applies. tokens_reclaimed is a
-    // 4-bytes/token estimate over pruned output bytes — telemetry only,
-    // never a decision input.
     const pruned = fresh.filter(([, v]) => v.score <= deps.pruneThreshold);
+    let editIds: string[] = [];
+    if (editSink === undefined) {
+      // Filter fallback (Pi < 0.87): freeze the pruned ids; the context
+      // handler removes them from the message copy this epoch.
+      const nextIds = new Set<string>();
+      for (const [id, v] of applied) {
+        if (v.score <= deps.pruneThreshold) nextIds.add(id);
+      }
+      appliedPruneIds = nextIds;
+    } else {
+      // Edit mode (Pi ≥ 0.87): the projection owns visibility from here.
+      editIds = applyPruneEdits(pruned);
+    }
+    // PRUNE_EPOCH: what THIS boundary newly applies. tokens_reclaimed is the
+    // estimated token count of the REMOVED content — the pruned toolCall
+    // part JSON plus the toolResult content — at the harness's 3.5
+    // bytes/token (issue #9: the old 4-bytes/token output-only estimate
+    // undercounted). Telemetry only, never a decision input.
     const tokensReclaimed = Math.ceil(
-      pruned.reduce((sum, [, v]) => sum + v.outputBytes, 0) / 4,
+      pruned.reduce((sum, [, v]) => sum + v.callBytes + v.outputBytes, 0) /
+        BYTES_PER_TOKEN_ESTIMATE,
     );
     const settledEpoch = Math.max(...fresh.map(([, v]) => v.epoch));
     const scores: Record<string, number> = {};
     for (const [id, v] of fresh) scores[id] = v.score;
     deps.log(
-      `PRUNE_EPOCH: epoch=${settledEpoch} judged=${fresh.length} pruned=${pruned.length} kept=${fresh.length - pruned.length} tokens_reclaimed=${tokensReclaimed} scores={${Object.entries(
+      `PRUNE_EPOCH: epoch=${settledEpoch} mode=${mode} judged=${fresh.length} pruned=${pruned.length} kept=${fresh.length - pruned.length} tokens_reclaimed=${tokensReclaimed} edits=[${editIds.join(",")}] scores={${Object.entries(
         scores,
       )
         .map(([k, v]) => `${k}:${v}`)
@@ -2208,6 +2373,8 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
       pruned: pruned.length,
       kept: fresh.length - pruned.length,
       tokens_reclaimed: tokensReclaimed,
+      edits: editIds,
+      mode,
       scores,
     });
   };
@@ -2412,11 +2579,34 @@ export function createJevContextExtension(
               appendTelemetry(telemetryFile, event, gatedLog),
             now: deps.now,
           });
+    // Pi ≥ 0.87 feature detection: the runtime SessionManager carries
+    // appendContextEdit (the ReadonlySessionManager type omits it), making
+    // prunes durable append-only context_edit entries. Pi < 0.87 falls
+    // back to the context-event filter path.
+    const editCapable = ctx.sessionManager as unknown as {
+      appendContextEdit?: AppendContextEditFn;
+    };
+    const appendContextEdit =
+      typeof editCapable.appendContextEdit === "function"
+        ? editCapable.appendContextEdit.bind(ctx.sessionManager)
+        : undefined;
+    // Resume-aware judge-once: targets of existing context_edit entries on
+    // the branch seed the pruner; their pairs are never re-judged.
+    const editedTargets: string[] = [];
+    if (appendContextEdit !== undefined) {
+      for (const entry of ctx.sessionManager.getBranch()) {
+        const raw = entry as { type: string; targetId?: unknown };
+        if (raw.type !== "context_edit") continue;
+        if (typeof raw.targetId === "string") editedTargets.push(raw.targetId);
+      }
+    }
     pruner = createEpochPruner({
       apiKey,
       jevPruneJudge,
       stateCapBytes: config.pruneStateCapBytes,
       pruneThreshold: config.pruneThreshold,
+      appendContextEdit,
+      editedTargets,
       notify: (message, type) => ctx.ui.notify(message, type),
       log: gatedLog,
       recordTelemetry: (event) =>
