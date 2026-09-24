@@ -47,11 +47,12 @@
  *   thinking/text part remaining — with identical model-visible results.
  *   The applied set is byte-stable within the epoch (§3.4); new verdicts
  *   apply only at the next boundary. Every judged epoch appends a
- *   PRUNE_JUDGED record, and every boundary that applies new verdicts
- *   appends a PRUNE_EPOCH record (judged/pruned/kept/tokens_reclaimed/
- *   scores) to the telemetry JSONL. Fail-static: judge failures log
- *   ROUTE_DEGRADED, notify once per error class, and cache nothing
- *   (zero pruning = Pi native).
+ *   PRUNE_JUDGED record, every boundary that applies new verdicts appends
+ *   a PRUNE_EPOCH record (mode/judged/pruned/kept/tokens_reclaimed/edits/
+ *   scores) to the telemetry JSONL, and the session's prune mode is logged
+ *   once as PRUNE_MODE. Fail-static: judge failures log ROUTE_DEGRADED,
+ *   notify once per error class, and cache nothing (zero pruning = Pi
+ *   native).
  * Events used: `session_start` (init: config, API key, catalog scan,
  *   fail-static tool baseline, context_edit resume seeding),
  *   `before_agent_start` (digest + both scoring passes + injection rebuild +
@@ -952,6 +953,8 @@ export interface EpochPair {
   /** Full text of the tool result (text parts joined). */
   output: string;
   outputBytes: number;
+  /** Byte size of the toolCall part JSON; feeds the tokens_reclaimed estimate. */
+  callBytes: number;
   /** Session entry id of the assistant message owning the call. */
   assistantEntryId?: string;
   /** Session entry id of the pair's toolResult message. */
@@ -1039,6 +1042,7 @@ export function captureEpochPairs(
             ordinal: calls,
             output: "",
             outputBytes: 0,
+            callBytes: Buffer.byteLength(JSON.stringify(part), "utf8"),
             assistantEntryId: entry.id,
             assistantContent: message.content,
           });
@@ -1240,8 +1244,13 @@ export interface PruneEpochRecord {
   judged: number;
   pruned: number;
   kept: number;
-  /** Estimate at 4 bytes/token over pruned output bytes; telemetry only. */
+  /** Estimated tokens of the removed content (toolCall part JSON plus
+   *  toolResult content) at 3.5 bytes/token; telemetry only. */
   tokens_reclaimed: number;
+  /** context_edit entry ids appended at this boundary ([] in filter mode). */
+  edits: string[];
+  /** Application mode: durable edits (Pi ≥ 0.87) or the filter fallback. */
+  mode: "context_edit" | "context_filter";
   /** Newly applied helpfulness scores, by toolCall id. */
   scores: Record<string, number>;
 }
@@ -1393,6 +1402,11 @@ function parseTelemetryLine(line: string): TelemetryEvent | null {
         kept: rec.kept,
         tokens_reclaimed: rec.tokens_reclaimed,
         scores: numericScores,
+        // Pre-mode records parse as the filter fallback they were.
+        edits: Array.isArray(rec.edits)
+          ? rec.edits.filter((v): v is string => typeof v === "string")
+          : [],
+        mode: rec.mode === "context_edit" ? "context_edit" : "context_filter",
       };
     }
     return null;
@@ -2087,6 +2101,8 @@ export interface PruneVerdict {
   epoch: number;
   /** Byte size of the judged output; feeds the tokens_reclaimed estimate. */
   outputBytes: number;
+  /** Byte size of the toolCall part JSON; feeds the tokens_reclaimed estimate. */
+  callBytes: number;
   /** Session entry id of the assistant message owning the pair's call. */
   assistantEntryId?: string;
   /** Session entry id of the pair's toolResult message. */
@@ -2151,6 +2167,11 @@ export interface EpochPruner {
   appliedIds(): ReadonlySet<string>;
 }
 
+/** Bytes→tokens estimate for reclaim telemetry: the eval harness's
+ *  calibrated constant (eval/harness/tokens.ts). Telemetry only, never a
+ *  decision input. */
+export const BYTES_PER_TOKEN_ESTIMATE = 3.5;
+
 export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
   let epoch = 0;
   const verdictMap = new Map<string, PruneVerdict>();
@@ -2167,6 +2188,11 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
    *  plus every edit this session applied): never re-judged. */
   const editedTargets = new Set<string>(deps.editedTargets ?? []);
   const editSink = deps.appendContextEdit;
+  const mode: PruneEpochRecord["mode"] =
+    editSink === undefined ? "context_filter" : "context_edit";
+  // The mode is fixed per session (feature-detected at build); log it once.
+  // Absent mode stays silent, consistent with the absent-mode contract.
+  if (deps.apiKey !== null) deps.log(`PRUNE_MODE: mode=${mode}`);
 
   const degrade = (errorClass: string, detail: string): void => {
     deps.log(
@@ -2227,6 +2253,7 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
           score,
           epoch,
           outputBytes: pair?.outputBytes ?? 0,
+          callBytes: pair?.callBytes ?? 0,
           assistantEntryId: pair?.assistantEntryId,
           resultEntryId: pair?.resultEntryId,
           assistantContent: pair?.assistantContent,
@@ -2265,11 +2292,12 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
    * verbatim; an entry left with zero parts is omitted rather than
    * replaced with empty content. Raw entries are never modified.
    */
-  const applyPruneEdits = (pruned: [string, PruneVerdict][]): void => {
-    if (editSink === undefined) return;
+  const applyPruneEdits = (pruned: [string, PruneVerdict][]): string[] => {
+    if (editSink === undefined) return [];
+    const editIds: string[] = [];
     for (const [, v] of pruned) {
       if (v.resultEntryId === undefined) continue;
-      editSink(v.resultEntryId, null);
+      editIds.push(editSink(v.resultEntryId, null));
       editedTargets.add(v.resultEntryId);
     }
     const byEntry = new Map<
@@ -2290,9 +2318,12 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
       const content = group.content.filter(
         (part) => part.type !== "toolCall" || !group.prunedIds.has(part.id),
       );
-      editSink(entryId, content.length === 0 ? null : { content });
+      editIds.push(
+        editSink(entryId, content.length === 0 ? null : { content }),
+      );
       editedTargets.add(entryId);
     }
+    return editIds;
   };
 
   const refreshAppliedSet = async (): Promise<void> => {
@@ -2302,6 +2333,7 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
     if (fresh.length === 0) return;
     for (const [id, v] of fresh) applied.set(id, v);
     const pruned = fresh.filter(([, v]) => v.score <= deps.pruneThreshold);
+    let editIds: string[] = [];
     if (editSink === undefined) {
       // Filter fallback (Pi < 0.87): freeze the pruned ids; the context
       // handler removes them from the message copy this epoch.
@@ -2312,19 +2344,22 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
       appliedPruneIds = nextIds;
     } else {
       // Edit mode (Pi ≥ 0.87): the projection owns visibility from here.
-      applyPruneEdits(pruned);
+      editIds = applyPruneEdits(pruned);
     }
-    // PRUNE_EPOCH: what THIS boundary newly applies. tokens_reclaimed is a
-    // 4-bytes/token estimate over pruned output bytes — telemetry only,
-    // never a decision input.
+    // PRUNE_EPOCH: what THIS boundary newly applies. tokens_reclaimed is the
+    // estimated token count of the REMOVED content — the pruned toolCall
+    // part JSON plus the toolResult content — at the harness's 3.5
+    // bytes/token (issue #9: the old 4-bytes/token output-only estimate
+    // undercounted). Telemetry only, never a decision input.
     const tokensReclaimed = Math.ceil(
-      pruned.reduce((sum, [, v]) => sum + v.outputBytes, 0) / 4,
+      pruned.reduce((sum, [, v]) => sum + v.callBytes + v.outputBytes, 0) /
+        BYTES_PER_TOKEN_ESTIMATE,
     );
     const settledEpoch = Math.max(...fresh.map(([, v]) => v.epoch));
     const scores: Record<string, number> = {};
     for (const [id, v] of fresh) scores[id] = v.score;
     deps.log(
-      `PRUNE_EPOCH: epoch=${settledEpoch} judged=${fresh.length} pruned=${pruned.length} kept=${fresh.length - pruned.length} tokens_reclaimed=${tokensReclaimed} scores={${Object.entries(
+      `PRUNE_EPOCH: epoch=${settledEpoch} mode=${mode} judged=${fresh.length} pruned=${pruned.length} kept=${fresh.length - pruned.length} tokens_reclaimed=${tokensReclaimed} edits=[${editIds.join(",")}] scores={${Object.entries(
         scores,
       )
         .map(([k, v]) => `${k}:${v}`)
@@ -2338,6 +2373,8 @@ export function createEpochPruner(deps: EpochPrunerDeps): EpochPruner {
       pruned: pruned.length,
       kept: fresh.length - pruned.length,
       tokens_reclaimed: tokensReclaimed,
+      edits: editIds,
+      mode,
       scores,
     });
   };

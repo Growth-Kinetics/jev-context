@@ -1,7 +1,7 @@
 /**
  * Tests for the jev-context extension (Nozzle 1: spec 2026-09-18-001 M1-M3;
  * Nozzle 2: spec 2026-09-18-002 M1-M2; Nozzle 3: spec 2026-09-18-003 M1-M2
- * and spec 2026-09-20-001 M1, the context-edit migration).
+ * and spec 2026-09-20-001 M1-M2, the context-edit migration).
  * §5 scenario titles are mirrored verbatim from VERIFYING.md so
  * "scenario exists ⇔ test exists" is diffable.
  * No network: the Jev client is exercised against a loopback fixture server
@@ -2661,7 +2661,7 @@ test("the applied set is byte-stable within an epoch; new prunes apply only at t
   );
 });
 
-test("PRUNE_EPOCH: a boundary that applies new verdicts logs and records judged/pruned/kept/tokens_reclaimed/scores", async () => {
+test("PRUNE_EPOCH: a boundary that applies new verdicts logs and records judged/pruned/kept/tokens_reclaimed/edits/mode/scores", async () => {
   const { pruner, logs, telemetry } = makePruner(
     fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
   );
@@ -2670,9 +2670,11 @@ test("PRUNE_EPOCH: a boundary that applies new verdicts logs and records judged/
   const line = logs.find((l) => l.startsWith("PRUNE_EPOCH:"));
   assert.ok(line !== undefined);
   assert.ok(line.includes("epoch=1"));
+  assert.ok(line.includes("mode=context_filter"));
   assert.ok(line.includes("judged=2"));
   assert.ok(line.includes("pruned=1"));
   assert.ok(line.includes("kept=1"));
+  assert.ok(line.includes("edits=[]"));
   const rec = telemetry.find(
     (e): e is PruneEpochRecord => e.event === "PRUNE_EPOCH",
   );
@@ -2681,12 +2683,73 @@ test("PRUNE_EPOCH: a boundary that applies new verdicts logs and records judged/
   assert.equal(rec.pruned, 1);
   assert.equal(rec.kept, 1);
   assert.deepEqual(rec.scores, { "tc-1": 0.1, "tc-2": 0.9 });
-  // tokens_reclaimed derives from the pruned output's bytes (estimate > 0).
+  // Filter mode appends no edits and says so.
+  assert.deepEqual(rec.edits, []);
+  assert.equal(rec.mode, "context_filter");
+  // tokens_reclaimed derives from the removed content's bytes (estimate > 0).
   assert.ok(rec.tokens_reclaimed > 0);
   // A boundary with no new verdicts stays quiet.
   const logCount = logs.length;
   await pruner.refreshAppliedSet();
   assert.equal(logs.length, logCount);
+});
+
+test("reclaim accounting: tokens_reclaimed estimates the removed content (toolCall JSON + toolResult) at 3.5 bytes/token (issue #9)", async () => {
+  const { pruner, telemetry } = makePruner(
+    fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
+  );
+  await pruner.onAgentSettled(epochEntries());
+  await pruner.refreshAppliedSet();
+  const rec = telemetry.find(
+    (e): e is PruneEpochRecord => e.event === "PRUNE_EPOCH",
+  );
+  assert.ok(rec !== undefined);
+  // Removed content for the pruned pair tc-1: the toolCall part JSON
+  // ({"type":"toolCall","id":"tc-1","name":"grep","arguments":{"pattern":"port"}}
+  // = 76 bytes) plus the toolResult text ("GREP-HITS" = 9 bytes):
+  // ceil(85 / 3.5) = 25. The pre-#9 accounting (output bytes only at
+  // 4 bytes/token) reported 3; a units regression moves this number.
+  assert.equal(rec.tokens_reclaimed, 25);
+});
+
+test("edit mode: PRUNE_EPOCH records mode=context_edit and the appended context_edit entry ids", async () => {
+  const recorded: RecordedEdit[] = [];
+  const sink: AppendContextEditFn = (targetId, replacement) => {
+    recorded.push({ targetId, replacement });
+    return `edit-${recorded.length}`;
+  };
+  const { pruner, logs, telemetry } = makePruner(
+    fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
+    { appendContextEdit: sink },
+  );
+  await pruner.onAgentSettled(epochEntriesWithIds());
+  await pruner.refreshAppliedSet();
+  const rec = telemetry.find(
+    (e): e is PruneEpochRecord => e.event === "PRUNE_EPOCH",
+  );
+  assert.ok(rec !== undefined);
+  assert.equal(rec.mode, "context_edit");
+  // Application order: the result omit, then the assistant replacement.
+  assert.deepEqual(rec.edits, ["edit-1", "edit-2"]);
+  assert.deepEqual(
+    recorded.map((e) => e.targetId),
+    ["e-result-1", "e-assistant-1"],
+  );
+  const line = logs.find((l) => l.startsWith("PRUNE_EPOCH:"));
+  assert.ok(line !== undefined);
+  assert.ok(line.includes("mode=context_edit"));
+  assert.ok(line.includes("edits=[edit-1,edit-2]"));
+});
+
+test("PRUNE_MODE is logged once per session, naming the detected mode", () => {
+  const sink: AppendContextEditFn = () => "edit-1";
+  const editMode = makePruner(fakePruneJudge({}), { appendContextEdit: sink });
+  assert.deepEqual(editMode.logs, ["PRUNE_MODE: mode=context_edit"]);
+  const filterMode = makePruner(fakePruneJudge({}));
+  assert.deepEqual(filterMode.logs, ["PRUNE_MODE: mode=context_filter"]);
+  // Absent mode stays silent (the absent-mode contract logs nothing).
+  const absent = makePruner(fakePruneJudge({}), { apiKey: null });
+  assert.deepEqual(absent.logs, []);
 });
 
 test("provider pairing invariant: after pair surgery, every remaining tool call has its result and every result its call", async () => {
@@ -2777,4 +2840,88 @@ test("context composition: skill injection stays at position 0 while pruned pair
     .map((l) => asRec(JSON.parse(l)).event);
   assert.ok(events.includes("PRUNE_EPOCH"));
   assert.ok(renderSkillStats(file).includes("route decisions: 1"));
+});
+
+test("Given Pi without `appendContextEdit`, then pruning falls back to context-event filtering with identical model-visible results", async () => {
+  const branch = epochEntriesWithIds();
+  const conversation: AgentMessage[] = branch.flatMap((e) =>
+    e.type === "message" && e.message !== undefined ? [e.message] : [],
+  );
+  // One session run per mode: filter = session manager without the seam
+  // (Pi < 0.87), edit = fake Pi ≥ 0.87 session manager recording edits.
+  const run = async (
+    editCapable: boolean,
+  ): Promise<{ visible: AgentMessage[]; lines: string[] }> => {
+    const home = makeTmpDir();
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(
+      join(home, ".pi", "agent", "jev-context.json"),
+      JSON.stringify({ consoleLog: true }),
+    );
+    const lines: string[] = [];
+    const handlers = createJevContextExtension({
+      homeDir: home,
+      env: { PI_TYPESAFE_JEV: "test-key" },
+      now: () => 1000,
+      log: (line) => lines.push(line),
+      jevScore: async () => ({ score: 0.1, inputTokens: 1, latencyMs: 1 }),
+      jevPruneJudge: fakePruneJudge({ "tc-1": 0.1, "tc-2": 0.9 }),
+    });
+    const { sessionManager, edits } = makeEditSessionManager(branch);
+    const ctx = {
+      cwd: makeTmpDir(),
+      ui: { notify: () => {} },
+      sessionManager: editCapable
+        ? sessionManager
+        : ({
+            getBranch: () => branch,
+          } as unknown as ExtensionContext["sessionManager"]),
+    } as unknown as ExtensionContext;
+    handlers.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
+    await handlers.onAgentSettled({ type: "agent_settled" }, ctx);
+    await handlers.onBeforeAgentStart(beforeStartEvent("next turn"), ctx);
+    const result = handlers.onContext(contextEvent(conversation));
+    if (editCapable) {
+      // The context handler does not filter in edit mode — the session
+      // projection (here: the test-side mirror) owns pruning.
+      assert.equal(result.messages, undefined);
+      return { visible: projectWithEdits(branch, edits), lines };
+    }
+    const filtered = result.messages;
+    assert.ok(filtered !== undefined);
+    return { visible: filtered, lines };
+  };
+  const filterMode = await run(false);
+  const editMode = await run(true);
+  // Identical model-visible results in both modes.
+  assert.deepEqual(editMode.visible, filterMode.visible);
+  // The pruned pair is gone; thinking and the kept pair survive.
+  assert.ok(
+    !filterMode.visible.some(
+      (m) => m.role === "toolResult" && m.toolCallId === "tc-1",
+    ),
+  );
+  assert.ok(
+    filterMode.visible.some(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some(
+          (p) => p.type === "thinking" && p.thinking === "THINKING-TRACE",
+        ),
+    ),
+  );
+  assert.ok(
+    filterMode.visible.some(
+      (m) => m.role === "toolResult" && m.toolCallId === "tc-2",
+    ),
+  );
+  // The mode is logged exactly once per session, naming the detected mode.
+  assert.deepEqual(
+    filterMode.lines.filter((l) => l.startsWith("PRUNE_MODE:")),
+    ["PRUNE_MODE: mode=context_filter"],
+  );
+  assert.deepEqual(
+    editMode.lines.filter((l) => l.startsWith("PRUNE_MODE:")),
+    ["PRUNE_MODE: mode=context_edit"],
+  );
 });
