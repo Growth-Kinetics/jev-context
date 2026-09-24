@@ -92,7 +92,8 @@ prose here as the reviewable contract and mirror each scenario as a `node:test` 
 ### Nozzle 1 — skill routing
 - Given a catalog of N skills and a new user message, when `before_agent_start` fires,
   then exactly one Jev request per not-yet-active skill is issued, in parallel, with the
-  full skill body in the question and the digest as state.
+  full skill body in the question and the routing state (latest user message plus digest)
+  as state.
 - Given skill scores [0.86, 0.16, …] and threshold 0.6, when the epoch starts, then only
   skills ≥ 0.6 enter the active set, capped at top-3 by score.
 - Given a skill already active, when a new user message arrives, then no Jev request is
@@ -115,10 +116,21 @@ prose here as the reviewable contract and mirror each scenario as a `node:test` 
 ### Nozzle 2 — tool surfacing
 - Given the always-on core (read, write, edit, bash, grep, find, ls), then it is present in
   every LLM call regardless of Jev state.
-- Given a turn whose digest scores a tool namespace ≥ threshold, when the `context` event fires,
-  then that namespace's schemas are included; below threshold, they are absent.
+- Given a turn whose routing state scores a tool namespace ≥ threshold, when the `context`
+  event fires, then that namespace's schemas are included; below threshold, they are absent.
 - Given Jev is down, then all namespaces behave as Pi default (fail-static), and a
   `ROUTE_DEGRADED` line is logged.
+- Given a single 429 from the batched namespace request, then the current tool set is
+  frozen for that epoch without a degradation notify, and scoring retries at the next
+  boundary.
+- Given a repeated 429 after a frozen epoch, then every configured namespace fails static
+  to visible, ROUTE_DEGRADED is logged, and the owner is notified once.
+- Given a tool call answered with Pi's synthesized unknown-tool result, then the owning
+  namespace is force-surfaced at the next boundary for one epoch, logged as
+  TOOL_SURFACE_MISS.
+- Given a user message naming a configured namespace or installed skill, then the routing
+  request carries it as `latest_user_message` and the namespace description when
+  configured.
 
 ### Nozzle 3 — epoch pruning
 - Given a closed agent epoch, when `agent_settled` fires, then each tool call/result pair of
