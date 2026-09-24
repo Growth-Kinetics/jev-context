@@ -111,7 +111,10 @@ test("projection: { content } replacement swaps only content, role and metadata 
     { type: "text", text: "cv.pdf found (output pruned to summary)" },
   ]);
   assert.equal(e3?.message?.role, "toolResult");
+  // metadata survives a content replacement (Pi: role and metadata retained)
   assert.equal(e3?.message?.toolCallId, "tc1");
+  assert.equal(e3?.message?.toolName, "bash");
+  assert.equal(e3?.message?.isError, false);
 });
 
 test("projection: an assistant entry with two toolCalls keeps the un-pruned call only", () => {

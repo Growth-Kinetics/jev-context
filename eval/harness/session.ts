@@ -10,6 +10,7 @@ import type {
   Epoch,
   MessagePart,
   ParsedSession,
+  PiMessage,
   SessionEntry,
   ToolPair,
   ToolResultMessage,
@@ -92,10 +93,11 @@ export function projectEntries(entries: SessionEntry[]): SessionEntry[] {
       typeof replacement.content === "string"
         ? [{ type: "text" as const, text: replacement.content }]
         : replacement.content;
-    out.push({
-      ...entry,
-      message: { ...entry.message, content },
-    });
+    // carry the source message through UNCHANGED — role and every metadata field
+    // (toolCallId, toolName, isError, ...) — swapping only content, exactly like
+    // Pi's projectContextEntry; a toolResult that loses toolCallId breaks pairing
+    const message: PiMessage = { ...entry.message, content };
+    out.push({ ...entry, message });
   }
   return out;
 }
