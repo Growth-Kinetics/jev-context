@@ -11,6 +11,7 @@ export interface Aggregate {
   degradedSkillsSessions: number;
   calls: number;
   epochs: number;
+  tokensRaw: number;
   tokensBaseline: number;
   tokensRouted: number;
   tokensPruned: number;
@@ -51,8 +52,11 @@ function sumSpend(spend: SpendLine[]): { tokens: number; requests: number } {
 }
 
 export function aggregate(results: SessionResult[]): Aggregate {
-  const tokens = (r: SessionResult, arm: "baseline" | "routed" | "pruned") =>
-    estimateTokens(r[arm].textBytes);
+  const tokens = (
+    r: SessionResult,
+    arm: "raw" | "baseline" | "routed" | "pruned",
+  ) => estimateTokens(r[arm].textBytes);
+  const tokensRaw = results.reduce((acc, r) => acc + tokens(r, "raw"), 0);
   const tokensBaseline = results.reduce(
     (acc, r) => acc + tokens(r, "baseline"),
     0,
@@ -80,6 +84,7 @@ export function aggregate(results: SessionResult[]): Aggregate {
     degradedSkillsSessions: results.filter((r) => r.degradedSkills).length,
     calls: results.reduce((acc, r) => acc + r.calls, 0),
     epochs: results.reduce((acc, r) => acc + r.epochs, 0),
+    tokensRaw,
     tokensBaseline,
     tokensRouted,
     tokensPruned,
@@ -170,7 +175,14 @@ export function reportMarkdown(doc: ReportDoc): string {
   lines.push("");
   lines.push(`| arm | tokens |`);
   lines.push(`|---|---|`);
-  lines.push(`| baseline (native) | ${tok(a.tokensBaseline)} |`);
+  if (a.tokensRaw !== a.tokensBaseline) {
+    lines.push(`| raw (pre-edit, no governor) | ${tok(a.tokensRaw)} |`);
+    lines.push(
+      `| baseline (projected) | ${tok(a.tokensBaseline)} — ${tok(a.tokensRaw - a.tokensBaseline)} tokens already pruned by governor (context_edit) |`,
+    );
+  } else {
+    lines.push(`| baseline (native) | ${tok(a.tokensBaseline)} |`);
+  }
   lines.push(
     `| routed (nozzles 1+2) | ${tok(a.tokensRouted)} (−${pct(a.reductionRoutedPct)}%) |`,
   );
@@ -225,19 +237,31 @@ export function reportMarkdown(doc: ReportDoc): string {
   lines.push("");
   lines.push(`## Per-session`);
   lines.push("");
-  lines.push(
-    `| proj | epochs | calls | baseline | routed | pruned | red. % | pruned pairs |`,
+  const hasEdits = doc.sessions.some(
+    (r) => r.raw.textBytes !== r.baseline.textBytes,
   );
-  lines.push(`|---|---|---|---|---|---|---|---|`);
+  const cols = hasEdits ? 9 : 8;
+  lines.push(
+    hasEdits
+      ? `| proj | epochs | calls | raw | baseline | routed | pruned | red. % (raw) | pruned pairs |`
+      : `| proj | epochs | calls | baseline | routed | pruned | red. % | pruned pairs |`,
+  );
+  lines.push(`|${"---|".repeat(cols)}`);
   for (const r of doc.sessions) {
-    const red =
-      r.baseline.textBytes > 0
-        ? ((r.baseline.textBytes - r.pruned.textBytes) / r.baseline.textBytes) *
-          100
-        : 0;
-    lines.push(
-      `| ${r.proj} | ${r.epochs} | ${r.calls} | ${tok(estimateTokens(r.baseline.textBytes))} | ${tok(estimateTokens(r.routed.textBytes))} | ${tok(estimateTokens(r.pruned.textBytes))} | ${pct(red)} | ${r.prunedPairs} |`,
-    );
+    const denom = hasEdits ? r.raw.textBytes : r.baseline.textBytes;
+    const red = denom > 0 ? ((denom - r.pruned.textBytes) / denom) * 100 : 0;
+    const cells = [
+      r.proj,
+      `${r.epochs}`,
+      `${r.calls}`,
+      ...(hasEdits ? [tok(estimateTokens(r.raw.textBytes))] : []),
+      tok(estimateTokens(r.baseline.textBytes)),
+      tok(estimateTokens(r.routed.textBytes)),
+      tok(estimateTokens(r.pruned.textBytes)),
+      pct(red),
+      `${r.prunedPairs}`,
+    ];
+    lines.push(`| ${cells.join(" | ")} |`);
   }
   lines.push("");
   lines.push(

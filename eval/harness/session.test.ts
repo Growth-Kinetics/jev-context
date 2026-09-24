@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildDigest,
+  contextEdits,
   pairsInSession,
   parseSession,
   parseSessionLines,
@@ -11,6 +12,8 @@ import {
 } from "./session.ts";
 
 const MINI = new URL("../fixtures/mini.jsonl", import.meta.url).pathname;
+const MINI_EDITED = new URL("../fixtures/mini-edited.jsonl", import.meta.url)
+  .pathname;
 
 test("parser skips malformed lines and non-message entries without failing", () => {
   const session = parseSession(MINI);
@@ -87,4 +90,63 @@ test("digest: cap keeps the newest content and drops the oldest", () => {
 test("empty corpus yields no epochs and empty digest", () => {
   assert.equal(segmentEpochs(parseSessionLines(["{bad"])).length, 0);
   assert.equal(buildDigest([], 0), "");
+});
+
+// ---- context_edit projection (Pi >= 0.87 semantics; fixture mini-edited.jsonl)
+
+test("projection: null replacement omits the target entry from model context", () => {
+  const session = parseSession(MINI_EDITED);
+  // e6 (tavily toolResult) omitted by ce1
+  assert.ok(!session.projected.some((e) => e.id === "e6"));
+  // the raw append-only transcript still carries it
+  assert.ok(session.entries.some((e) => e.id === "e6"));
+});
+
+test("projection: { content } replacement swaps only content, role and metadata retained", () => {
+  const session = parseSession(MINI_EDITED);
+  const e3 = session.projected.find((e) => e.id === "e3");
+  assert.notEqual(e3, undefined);
+  // string replacement becomes one text part (Pi: assistant/toolResult string rule)
+  assert.deepEqual(e3?.message?.content, [
+    { type: "text", text: "cv.pdf found (output pruned to summary)" },
+  ]);
+  assert.equal(e3?.message?.role, "toolResult");
+  // metadata survives a content replacement (Pi: role and metadata retained)
+  assert.equal(e3?.message?.toolCallId, "tc1");
+  assert.equal(e3?.message?.toolName, "bash");
+  assert.equal(e3?.message?.isError, false);
+});
+
+test("projection: an assistant entry with two toolCalls keeps the un-pruned call only", () => {
+  const session = parseSession(MINI_EDITED);
+  const e5 = session.projected.find((e) => e.id === "e5");
+  const calls = e5?.message?.content.filter((p) => p.type === "toolCall") ?? [];
+  assert.deepEqual(
+    calls.map((c) => (c.type === "toolCall" ? c.id : "")),
+    ["tc3"], // tc2 pruned with its result (e6); tc3 survives
+  );
+  assert.ok(
+    e5?.message?.content.some((p) => p.type === "text" && p.text === "done"),
+  );
+});
+
+test("projection: the latest context_edit for a target wins", () => {
+  const edits = contextEdits(parseSession(MINI_EDITED).entries);
+  assert.equal(edits.get("e7")?.id, "ce5"); // ce4 (replace) superseded by ce5 (omit)
+  assert.ok(!parseSession(MINI_EDITED).projected.some((e) => e.id === "e7"));
+});
+
+test("projection: already-pruned pairs vanish from projected epochs (never re-judged)", () => {
+  // governed session: the extension pruned tc2 (result e6 omitted, call part removed
+  // from e5) — the projected session no longer contains that pair at all
+  const pairs = pairsInSession(parseSession(MINI_EDITED));
+  assert.deepEqual(
+    pairs.map((p) => p.call.id),
+    ["tc1", "tc3", "tc5", "tc4"],
+  );
+});
+
+test("projection without edits is identity (raw == projected, byte-stable reports hold)", () => {
+  const plain = parseSession(MINI);
+  assert.deepEqual(plain.projected, plain.entries);
 });

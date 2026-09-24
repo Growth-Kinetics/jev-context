@@ -9,17 +9,19 @@ Binding quality contract: `VERIFYING.md`.
 | path | role |
 |---|---|
 | `run.ts` | CLI entry: gate, reports, live mode |
-| `harness/session.ts` | JSONL parser, epoch segmentation, tool pairing, nozzle-1 digest |
+| `harness/session.ts` | JSONL parser, context_edit projection, epoch segmentation, tool pairing, nozzle-1 digest |
 | `harness/policy.ts` | threshold policy (load 0.6, top-3, decay 0.25) from `expected.json` |
 | `harness/client.ts` | the single injectable Jev boundary (recorded cache or live fetch) |
 | `harness/simulate.ts` | counterfactual arms: baseline / routed / pruned |
 | `harness/report.ts` | deterministic JSON + markdown writers |
+| `harness/prune-report.ts` | live pruning-accuracy report from context_edit verdicts (named later-reference proxy) |
+| `harness/parity.test.ts` | optional projection-parity test vs Pi's buildSessionProjection (PARITY_SKIP below 0.87) |
 | `harness/check.ts` | ratchet gate (VERIFYING.md section 4) |
 | `golden-sessions.json` | owner-local corpus index (paths to YOUR sessions); gitignored, never committed |
 | `baseline-results.json` | owner-local recorded skill scores for your labeled sessions; gitignored |
 | `expected.json` | owner-local labels, threshold policy, ratchet (floors + FP ceiling); gitignored |
-| `fixtures/` | committed snapshots: skill catalog sizes, tool schema sizes, synthetic mini-session |
-| `REPORT.md` / `REPORT-ALL.md` | owner-local report artifacts; gitignored |
+| `fixtures/` | committed snapshots: skill catalog sizes, tool schema sizes, synthetic mini-session, mini-session with context_edit entries |
+| `REPORT.md` / `REPORT-ALL.md` / `REPORT-PRUNE.md` | owner-local report artifacts; gitignored |
 
 ## Corpus: owner-local by design
 
@@ -41,6 +43,7 @@ harness works against whatever you point it at:
 node eval/run.ts --check            # ratchet gate over committed data (wired into npm run check)
 node eval/run.ts                    # golden-12 report -> eval/REPORT.md + REPORT.json
 node eval/run.ts --corpus all       # all-88 report -> eval/REPORT-ALL.md + REPORT-ALL.json
+node eval/run.ts --prune-report     # pruning accuracy from context_edit verdicts -> eval/REPORT-PRUNE.md + .json
 node eval/run.ts --session a.jsonl --session b.jsonl
 node eval/run.ts --live --key-file ~/secrets/typesafe-jev.env   # KEY=value or raw key file
 ```
@@ -51,6 +54,23 @@ network. `--live` reads `PI_TYPESAFE_JEV` (or `--key-file` in `KEY=value` format
 Jev endpoint through the injectable client, and writes scores into
 `fixtures/recorded-cache.json` keyed by request content hash. The key is never logged or
 stored. Tests never construct the live path against real network.
+
+## context_edit projection (Pi >= 0.87) and the raw figure
+
+Sessions governed by this extension carry append-only `context_edit` entries
+(`{ type: "context_edit", targetId, replacement }`; `replacement: null` omits the target
+from model context, `{ content }` replaces only its content). `harness/session.ts`
+reimplements Pi's projection — latest edit per target wins, omitted targets produce no
+message, replacements keep role/metadata — so epochs, digests, and the baseline arm all
+reflect what the model actually saw. `eval/harness/parity.test.ts` compares our projection
+against Pi's exported `buildSessionProjection()` and **skips loudly** (`PARITY_SKIP`) when the
+installed `@earendil-works/pi-coding-agent` predates 0.87 (this repo pins 0.85.1).
+
+The reports therefore show two native figures: **raw** (pre-edit history, no governor at all)
+and **baseline** (projected). Their difference is labeled *already pruned by governor* — it is
+what the extension's durable prunes saved in the real session, distinct from any nozzle
+counterfactual. Pairs removed by edits no longer exist in projected epochs, so the harness
+never re-judges them (mirrors the extension's resume rule).
 
 ## Token model
 
@@ -68,9 +88,11 @@ Image bytes are reported as a separate bucket in every report so the distortion 
 Each session is replayed once; every epoch (user turn) bills `context tokens x calls` where
 calls = assistant messages in the epoch.
 
-- **baseline** — native Pi: all 18 catalog skill bodies + all namespace schemas in every
-  epoch; full history accumulates. Skill/schema bytes come from `fixtures/*.json`
-  (measured from the live skill roots and the installed Pi dist; provenance inside).
+- **raw** — no governor: pre-edit history, all 18 catalog skill bodies + all namespace schemas
+  in every epoch (what the session would have billed ungoverned). Skill/schema bytes come from
+  `fixtures/*.json` (measured from the live skill roots and the installed Pi dist; provenance inside).
+- **baseline** — native Pi over the projected session (context_edit applied): what the session
+  actually billed; `raw - baseline` history is already-pruned-by-governor.
 - **routed** — nozzles 1+2: top-3 skills >= 0.6 (skip-active, decay re-check every 5th turn),
   namespaces surfaced only while active, always-on core exempt.
 - **pruned** — nozzle 3 added: tool call/result pairs judged "not helpful to subsequent
@@ -94,10 +116,30 @@ land, the harness simulates their judgment layers like this:
   ("helpful to subsequent turns?") answered from ground truth, so `falsePrune` is 0 by
   construction in fixture mode; `falseKeep` (kept but never recurred) is the missed-savings
   bound. Live verdicts slot into the same `pruneVerdicts` seam.
+- **Live pruning accuracy** — NOT a simulation: `--prune-report` reads the session's own
+  `context_edit` entries (see the "Live pruning accuracy" section).
 - **Digest divergence note** — the Python provenance probe walked the transcript in file
   order under the 80 KB cap; the nozzle-1 spec (and this harness) walks newest-first. The
   recorded scores remain valid as per-session relevance tables; a live re-run under the
   newest-first digest is the reconciliation step once nozzles land.
+
+## Live pruning accuracy (`--prune-report`)
+
+Sessions governed by this extension record every prune as an append-only `context_edit`
+entry — the edits ARE the live verdicts. `node eval/run.ts --prune-report [--session ...]`
+(reports to `eval/REPORT-PRUNE.md` + `.json`, gitignored; no scores, no network) treats each
+omitted tool result as a live prune and scores it against a **named ground-truth proxy**:
+
+- **proxy false prune** — a distinctive token of the pruned output appears in any later
+  user/assistant message (the model still needed it);
+- **proxy missed saving** — a kept closed-epoch output never referenced later;
+- **re-called** — the same tool was called again after the prune; reported alongside,
+  never folded into the false-prune count.
+
+The proxy BOUNDS, it does not measure: references can be indirect or paraphrased, and a
+re-call may or may not have needed the old output. Sessions without `context_edit` entries
+are listed as skipped. Fixture `mini-edited.jsonl` exercises every branch, and two runs are
+byte-identical (enforced by test).
 
 ## Ratchet gate (`node eval/run.ts --check`, wired into `npm run check`)
 

@@ -31,9 +31,18 @@ export type PiMessage = ChatMessage | ToolResultMessage;
 export interface SessionEntry {
   type: string;
   id?: string;
-  parentId?: string;
+  parentId?: string | null;
   timestamp?: string;
   message?: PiMessage;
+  /** context_edit (Pi >= 0.87): id of the entry this edit targets */
+  targetId?: string;
+  /** null = omit the target from model context; { content } = replace content only */
+  replacement?: ContextEditReplacement | null;
+}
+
+export interface ContextEditReplacement {
+  /** parts array, or a plain string (assistant/toolResult: projected to one text part) */
+  content: MessagePart[] | string;
 }
 
 /** One agent epoch: a user turn plus everything Pi did before the next user turn. */
@@ -46,7 +55,10 @@ export interface Epoch {
 
 export interface ParsedSession {
   path: string;
+  /** raw on-disk entries, append-only truth (context_edit entries included) */
   entries: SessionEntry[];
+  /** model-visible entries after context_edit projection (what the LLM was billed) */
+  projected: SessionEntry[];
   epochs: Epoch[];
 }
 

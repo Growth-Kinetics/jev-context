@@ -1957,7 +1957,7 @@ test("Given a user message naming a configured namespace or installed skill, the
 function toolCallPart(
   id: string,
   name: string,
-  args: Record<string, unknown>,
+  args: ToolCall["arguments"],
 ): ToolCall {
   return { type: "toolCall", id, name, arguments: args };
 }
