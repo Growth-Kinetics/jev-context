@@ -1,6 +1,6 @@
 {
   "name": "jev-context",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "description": "Jev-routed context governor for Pi coding agent sessions: skill routing, tool surfacing, epoch pruning",
